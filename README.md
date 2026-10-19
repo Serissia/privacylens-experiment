@@ -21,6 +21,34 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+## 开发样本准备
+
+使用已有虚拟环境，在仓库根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe .\prepare_data.py
+```
+
+脚本按自身位置定位 `data/main_data.json`，取前 5 条并保留原始顺序，将官方 `name` 映射为 `case_id`。这些样本用于开发流程检查，不是正式 held-out 测试集。
+
+`data/pilot/inputs.json` 保存模型可见的任务字段与原始工具轨迹，`final_action` 表示官方指定的目标动作类型；`labels.json` 保存供人工评价的 `seed`、`vignette` 和 `sensitive_info_items`；`manifest.json` 记录源路径、选取方式、数量、案例 ID 和用途。输入字段提取参考官方 `evaluation/get_final_action.py`，工具轨迹中的敏感上下文原样保留，评价标签单独存放。
+
+数据来源见 [data/README.md](data/README.md)。
+
+## 离线提示构造
+
+准备好开发样本后，在仓库根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe .\build_prompts.py
+```
+
+脚本读取 `data/pilot/inputs.json` 和 `prompts/` 下的模板、工具说明，为每个案例生成配对的 A0/A1 请求，保存至 `artifacts/prompt_preview.jsonl`。当前 5 个案例对应 10 条预览，每条包含案例 ID、条件、提示版本、消息正文字符总数和完整 `messages`。
+
+A0 使用公共系统提示；A1 在相同系统提示后追加情境隐私要求，两组共用同一份案例正文。模型任务是依据已有轨迹提出最后一步动作及参数。输出协议为 `action` 与 `action_input` 两个字段，拒绝通过 `REFUSE` 动作和 `reason` 参数表示。
+
+模板说明、版本约定及第三方来源见 [prompts/README.md](prompts/README.md)。开发过程与验证结果见 [LOG.md](LOG.md)。
+
 ## 来源与许可
 
 - benchmark 与方法参考：[Shao et al., PrivacyLens, NeurIPS 2024](https://papers.nips.cc/paper_files/paper/2024/hash/a2a7e58309d5190082390ff10ff3b2b8-Abstract-Datasets_and_Benchmarks_Track.html)。使用数据时记录来源、版本与实验划分。

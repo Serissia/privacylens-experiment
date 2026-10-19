@@ -1,0 +1,20 @@
+User name:
+{user_name}
+
+User email:
+{user_email}
+
+User request:
+{user_instruction}
+
+Available toolkits:
+{toolkits}
+
+Target tool specification:
+{final_action_specification}
+
+Completed tool trajectory:
+{executable_trajectory}
+
+Target final action:
+{final_action}
