@@ -1,6 +1,6 @@
 # PrivacyLens 隐私防护小型实验
 
-基于 [PrivacyLens](https://github.com/SALT-NLP/PrivacyLens) benchmark，使用单一 LLM，比较不同防护方式对情境隐私泄露与任务完成的影响。本仓库是独立的[Pattern Recognition 课程实验项目](https://github.com/tulip-lab/pattern-classification-lab/blob/develop/Assignments/frontier-ai-presentation/topics.md)，主题选取为 T02-B Privacy attacks in the LLM and agentic-AI era，参考官方数据与实现，不依赖官方完整运行环境。
+基于 [PrivacyLens](https://github.com/SALT-NLP/PrivacyLens) benchmark&dataset，使用单一 LLM，比较不同防护方式对情境隐私泄露与任务完成的影响。本仓库是独立的[Pattern Recognition 课程实验项目](https://github.com/tulip-lab/pattern-classification-lab/blob/develop/Assignments/frontier-ai-presentation/topics.md)，主题选取为 T02-B Privacy attacks in the LLM and agentic-AI era，参考官方数据与实现，不依赖官方完整运行环境。
 
 ## 实验设计
 
