@@ -1,0 +1,63 @@
+"""Generate candidate actions from prepared task messages."""
+
+from .build_prompts import DEFAULT_OUTPUT
+from .common import (
+    INPUT_PARAMETERS,
+    append_jsonl,
+    call_json,
+    check_budget,
+    load_settings,
+    project_path,
+    read_jsonl,
+    select_records,
+    set_parse_error,
+    start_run,
+)
+
+
+DEFAULT_INPUT = DEFAULT_OUTPUT
+
+
+def select_inputs(args):
+    return select_records(read_jsonl(project_path(args.input)), args.case_id, args.all, args.limit)
+
+
+def run(args, previews=None):
+    previews = select_inputs(args) if previews is None else previews
+    check_budget(len(previews), args.max_requests)
+    settings = load_settings(args.dry_run)
+    plans = [
+        {
+            "metadata": {
+                "case_id": preview["case_id"],
+                "condition": preview["condition"],
+                "prompt_version": preview["prompt_version"],
+                "prompt_char_count": preview["prompt_char_count"],
+                "kind": "input",
+            },
+            "payload": {**INPUT_PARAMETERS, "model": settings["base_model"], "messages": preview["messages"]},
+        }
+        for preview in previews
+    ]
+    run_dir, config = start_run(
+        "input", plans, settings, args.max_requests, args.dry_run,
+        {"input_path": project_path(args.input).as_posix()},
+    )
+    if args.dry_run:
+        return run_dir
+
+    for plan in plans:
+        result = call_json(plan, config, run_dir, settings["api_key"])
+        result["final_action"] = None
+        if result["status"] == "ok":
+            try:
+                action = result["model_output"]
+                result["final_action"] = {"action": action["action"], "action_input": action["action_input"]}
+                result["status"] = "refused" if action["action"] == "REFUSE" else "ok"
+            except (KeyError, TypeError) as error:
+                set_parse_error(result, error)
+        append_jsonl(run_dir / "results.jsonl", result)
+        print(f"{result['case_id']}/{result['condition']}: {result['status']}")
+        if result["status"] not in ("ok", "refused"):
+            raise SystemExit(1)
+    return run_dir

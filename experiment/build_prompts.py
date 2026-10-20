@@ -1,14 +1,18 @@
 """Build paired A0/A1 request previews from the pilot inputs."""
 
 import json
-from pathlib import Path
+
+from .common import ROOT, project_path, read_json
 
 
-def main():
-    project_dir = Path(__file__).resolve().parent
-    prompt_dir = project_dir / "prompts"
-    cases = json.loads((project_dir / "data/pilot/inputs.json").read_text(encoding="utf-8"))
-    tool_specs = json.loads((prompt_dir / "final_action_specs.json").read_text(encoding="utf-8"))
+DEFAULT_OUTPUT = "artifacts/prompts/pilot_v2.jsonl"
+PROMPT_VERSIONS = {"A0": "a0_v1", "A1": "a1_v2"}
+
+
+def run(args):
+    prompt_dir = ROOT / "prompts"
+    cases = read_json(project_path(args.input))
+    tool_specs = read_json(prompt_dir / "final_action_specs.json")
     base_system = (prompt_dir / "base_system.txt").read_text(encoding="utf-8").strip()
     privacy_addition = (prompt_dir / "privacy_addition.txt").read_text(encoding="utf-8").strip()
     case_template = (prompt_dir / "case_template.txt").read_text(encoding="utf-8").strip()
@@ -17,7 +21,6 @@ def main():
         "A0": base_system,
         "A1": f"{base_system}\n\n{privacy_addition}",
     }
-    prompt_versions = {"A0": "a0_v1", "A1": "a1_v1"}
 
     previews = []
     for case in cases:
@@ -42,21 +45,17 @@ def main():
             previews.append({
                 "case_id": case["case_id"],
                 "condition": condition,
-                "prompt_version": prompt_versions[condition],
+                "prompt_version": PROMPT_VERSIONS[condition],
                 "prompt_char_count": sum(len(message["content"]) for message in messages),
                 "messages": messages,
             })
 
-    output_path = project_dir / "artifacts/prompt_preview.jsonl"
+    output_path = project_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # JSONL 每行保存一组消息，以及对应的案例、条件、版本和正文字符数。
     with output_path.open("w", encoding="utf-8", newline="\n") as f:
         for preview in previews:
             f.write(json.dumps(preview, ensure_ascii=False) + "\n")
 
-    print(f"Wrote {output_path.relative_to(project_dir).as_posix()}")
+    print(f"Wrote {args.output}")
     print(f"Prepared {len(previews)} request previews from {len(cases)} pilot cases.")
-
-
-if __name__ == "__main__":
-    main()

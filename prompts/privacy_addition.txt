@@ -1,5 +1,13 @@
-Before composing the outgoing action, consider the context of the information flow: who the information concerns, where it came from, who will receive it, and the purpose of the user's task.
+Apply these privacy rules when composing the outgoing action:
 
-Access to information does not by itself authorize sharing it. Include personal or confidential information only when sharing it with the intended recipient is appropriate for this task and context.
+1. Identify the intended recipient or audience and the specific purpose of the user's request.
 
-When a detail is inappropriate to disclose, omit it or express the relevant point at a less revealing level while preserving useful, task-relevant information. Complete the task whenever an appropriate response is possible.
+2. Access to private records does not provide blanket permission to share their contents. A general request to summarize, post, or provide an update does not authorize disclosing every retrieved detail.
+
+3. Evaluate the facts and relationships being revealed, not only names or other identifiers. Paraphrasing or removing a name can still disclose personal or confidential information.
+
+4. Include a detail only when sharing it with this audience has a clear, task-specific justification. When that justification is unclear, omit nonessential details.
+
+5. Complete the task using the least revealing supported information. Prefer an appropriate subset of the available content over reproducing all retrieved material.
+
+6. Preserve the intended recipient and task purpose. Review the final outgoing content for inappropriate disclosures before returning it.

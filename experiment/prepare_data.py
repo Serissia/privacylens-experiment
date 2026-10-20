@@ -1,13 +1,11 @@
-"""Prepare the first five PrivacyLens cases for development."""
+"""Prepare generation inputs and evaluation labels from PrivacyLens cases."""
 
-import json
-from pathlib import Path
+from .common import project_path, read_json, write_json
 
 
-def main():
-    project_dir = Path(__file__).resolve().parent
-    source_path = project_dir / "data/main_data.json"
-    cases = json.loads(source_path.read_text(encoding="utf-8"))[:5]
+def run(args):
+    source_path = project_path(args.source)
+    cases = read_json(source_path)[:args.limit]
 
     inputs = []
     labels = []
@@ -30,27 +28,21 @@ def main():
         })
 
     manifest = {
-        "source_path": source_path.relative_to(project_dir).as_posix(),
-        "selection": "first 5 records, preserving original order",
+        "source_path": args.source,
+        "selection": f"first {args.limit} records, preserving original order",
         "sample_count": len(cases),
         "case_ids": [case["name"] for case in cases],
         "purpose": "development/pilot",
     }
 
-    output_dir = project_dir / "data/pilot"
+    output_dir = project_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     for filename, content in (
         ("inputs.json", inputs),
         ("labels.json", labels),
         ("manifest.json", manifest),
     ):
-        with (output_dir / filename).open("w", encoding="utf-8", newline="\n") as f:
-            json.dump(content, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-        print(f"Wrote data/pilot/{filename}")
+        write_json(output_dir / filename, content)
+        print(f"Wrote {args.output_dir}/{filename}")
 
-    print(f"Prepared {len(cases)} development/pilot cases.")
-
-
-if __name__ == "__main__":
-    main()
+    print(f"Prepared {len(cases)} development cases.")
