@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
@@ -60,8 +61,32 @@ def select_records(records, case_ids, all_cases, limit):
 
 
 def check_budget(request_count, max_requests):
+    max_requests = request_count if max_requests is None else max_requests
     if not 0 <= request_count <= max_requests:
         raise SystemExit(f"Planned {request_count} requests; --max-requests is {max_requests}")
+    return max_requests
+
+
+def print_token_usage(records):
+    grouped = defaultdict(list)
+    for record in records:
+        grouped[record["response_model"] or record["requested_model"]].append(record)
+
+    print("\nToken usage by model (current invocation):")
+    if not grouped:
+        print("  No recorded API usage.")
+    for model, group in grouped.items():
+        parts = []
+        for field, label in (("prompt_tokens", "input"), ("completion_tokens", "output"), ("total_tokens", "total")):
+            values = [
+                record["usage"][field] for record in group
+                if record["usage"] is not None and record["usage"].get(field) is not None
+            ]
+            value = f"{sum(values):,}" if values else "N/A"
+            if len(values) < len(group):
+                value += f" (reported {len(values)}/{len(group)})"
+            parts.append(f"{label}={value}")
+        print(f"  {model}: requests={len(group)}, {', '.join(parts)}")
 
 
 def load_settings(dry_run):

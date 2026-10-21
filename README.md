@@ -13,6 +13,7 @@ experiment/
   build_prompts.py         构造 A0/A1 请求
   run_input.py             调用模型生成最终动作
   run_comment.py           独立评价隐私与任务完成度
+  run_stat.py              汇总评价指标并生成图表
   common.py                文件操作与 API 请求
 prompts/                   任务模板、裁判标准、工具说明及版本归档
 docs/                      各类文档
@@ -38,7 +39,7 @@ BASE_MODEL=qwen3.5-flash
 REF_MODEL=qwen3.5-flash
 ```
 
-生成与隐私裁判使用 `BASE_MODEL`；helpfulness 裁判使用 `REF_MODEL`。默认复用 Flash。裁判选择与人工校准方法见 [评价协议](docs/evaluation.md)。
+生成使用 `BASE_MODEL`；隐私与 helpfulness 裁判分别在独立会话中使用 `REF_MODEL`。默认复用 Flash。裁判选择与人工校准方法见 [评价协议](docs/evaluation.md)。
 
 ## 准备样本与提示
 
@@ -58,13 +59,13 @@ REF_MODEL=qwen3.5-flash
 先离线查看两个案例的生成请求计划：
 
 ```powershell
-.\.venv\Scripts\python.exe .\run.py input --all --limit 2 --max-requests 4 --dry-run
+.\.venv\Scripts\python.exe .\run.py input --all --limit 2 --dry-run
 ```
 
 已有生成结果可单独评价。将下面的 `<RUN_ID>` 替换为相应运行目录名：
 
 ```powershell
-.\.venv\Scripts\python.exe .\run.py comment --input "artifacts/runs/<RUN_ID>/results.jsonl" --all --max-requests 4 --dry-run
+.\.venv\Scripts\python.exe .\run.py comment --input "artifacts/runs/<RUN_ID>/results.jsonl" --all --dry-run
 ```
 
 `comment` 的 `--input` 接受一个或多个结果文件；`--context` 和 `--labels` 分别指定对应任务上下文与评价标签，默认使用 `data/pilot/` 下的文件。
@@ -72,7 +73,7 @@ REF_MODEL=qwen3.5-flash
 也可以通过统一入口串联生成和评价：
 
 ```powershell
-.\.venv\Scripts\python.exe .\run.py pipeline --all --limit 1 --max-requests 6 --dry-run
+.\.venv\Scripts\python.exe .\run.py pipeline --all --limit 1 --dry-run
 ```
 
 `--dry-run` 使用 `.env.example` 保存离线请求计划。`pipeline` 的离线模式保存生成计划并核对整个流程的请求额度，实际评判消息由生成结果决定。移除 `--dry-run` 后，入口读取本机模型配置并真实调用 API。
@@ -83,17 +84,40 @@ REF_MODEL=qwen3.5-flash
 | `--case-id` | 选择一个或多个案例 |
 | `--all` | 选择输入文件中的全部案例 |
 | `--limit` | 最多选择多少个案例，保留同案例的全部条件 |
-| `--max-requests` | 本阶段或整个 pipeline 的请求尝试上限 |
+| `--max-requests` | 本阶段或整个 pipeline 的请求尝试上限；缺省时按选定请求计划自动计算 |
 
-默认选择输入中的第一个案例。A0/A1 配对下，每案例生成需要 2 次请求，隐私与 helpfulness 评价共需 4 次，完整 pipeline 共需 6 次。额度在调用前核对；每条请求尝试一次，故障记录后停止后续调用。
+默认选择输入中的第一个案例。A0/A1 配对下，N 个案例的生成上限自动设为 2N，评价为 4N，完整 pipeline 为 6N；独立评价按有效生成数量计算实际请求数。同案例重复观测和不同条件数量也按实际请求计划计算。显式传入 `--max-requests` 时，额度在调用前核对；每条请求尝试一次，故障记录后停止后续调用。
+
+## 离线统计与图表
+
+对本版 `comment` 产出的 `summary.json` 执行：
+
+```powershell
+.\.venv\Scripts\python.exe .\run.py stat --input "artifacts/comments/<COMMENT_RUN_ID>/summary.json"
+```
+
+支持多个 `--input` 路径和 `--output-dir`。默认写入 `artifacts/stats/<时间戳>/`，包含 `config.json` 来源配置、`statistics.json` 统计数据和以下三张 PNG 图：
+
+| 图片 | 内容与分母 |
+| --- | --- |
+| `privacy.png` | 仅展示敏感样本。依次为案例泄露率（泄露案例数 / 有效隐私评价的敏感案例数）、调整后泄露率（任务完成度 >=2 且隐私与任务评价均有效的敏感案例中的泄露比例）、事实项泄露率（泄露敏感事实项数 / 有效评价的敏感事实项数）。 |
+| `helpfulness.png` | 分别展示敏感与非敏感样本。依次为任务完成度均分（0–3 分）、任务完成率（分数 >=2 的输出数 / 有效任务评分数）、拒绝率（拒绝输出数 / 有效生成输出数）。 |
+| `coverage.png` | 分别展示敏感与非敏感样本。前三项为有效生成数、有效隐私评价数、有效任务评价数各自占选定输出数的比例；第四项为已有效评价的敏感事实项数 / 计划敏感事实项总数，用于查看生成失败、评价失败或缺失造成的覆盖缺口。 |
+
+各图保留条件、提示版本、被测模型与样本组。比例标注同时显示分子和分母，均分标注有效评分数量；标签中的 `n` 是选定输出条数，同案例多次运行属于重复观测。多份输入以 S1、S2 等编号独立展示，来源路径和裁判配置见 `config.json`。
+
+标签中的 `sensitive_info_items` 非空表示敏感样本，空清单表示非敏感样本。汇总同时统计泄露案例数、泄露事实项数、已评价事实项数与计划事实项总数；隐私泄露率使用敏感样本的有效评价作为分母，非敏感样本单独展示任务完成与拒绝指标。零分母记录为 `null`，图中显示 `N/A`。指标定义见 [评价协议](docs/evaluation.md)。
 
 ## 参数与产物
 
 生成参数集中在 `experiment/common.py`：温度 0、非思考模式、非流式、JSON Object 输出；生成的单次输出上限为 1024 tokens，裁判为 2048 tokens，连接与读取超时分别为 10 与 60 秒。模型裁判接口通过离线模拟检查，实际模型可用性与评分质量需要服务试跑和人工校准。[结构化输出文档](https://help.aliyun.com/zh/model-studio/qwen-structured-output)说明了 JSON Object 的适用范围。
 
+`input`、`comment` 和 `pipeline` 结束时在控制台按模型打印请求数、输入 token、输出 token 和总 token。优先使用响应返回的模型名称，缺失时使用请求模型名称；pipeline 汇总本次生成与裁判请求，同一模型的用量合并。中途失败时也打印已记录请求的用量；服务未返回用量时显示 `N/A`，部分请求有用量时标注已报告数量与请求总数。
+
 - `artifacts/previews/input/`、`previews/comment/`：离线请求计划。
 - `artifacts/runs/<run_id>/`：生成配置、原始响应和候选动作。
 - `artifacts/comments/<run_id>/`：裁判配置、原始响应、逐项评分与 `summary.json`。
+- `artifacts/stats/<时间戳>/`：JSON 统计数据、来源配置与三张 PNG 图。
 
 ## 来源与许可
 

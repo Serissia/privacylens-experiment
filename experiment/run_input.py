@@ -22,9 +22,9 @@ def select_inputs(args):
     return select_records(read_jsonl(project_path(args.input)), args.case_id, args.all, args.limit)
 
 
-def run(args, previews=None):
+def run(args, previews=None, usage_records=None):
     previews = select_inputs(args) if previews is None else previews
-    check_budget(len(previews), args.max_requests)
+    max_requests = check_budget(len(previews), args.max_requests)
     settings = load_settings(args.dry_run)
     plans = [
         {
@@ -40,7 +40,7 @@ def run(args, previews=None):
         for preview in previews
     ]
     run_dir, config = start_run(
-        "input", plans, settings, args.max_requests, args.dry_run,
+        "input", plans, settings, max_requests, args.dry_run,
         {"input_path": project_path(args.input).as_posix()},
     )
     if args.dry_run:
@@ -48,6 +48,8 @@ def run(args, previews=None):
 
     for plan in plans:
         result = call_json(plan, config, run_dir, settings["api_key"])
+        if usage_records is not None:
+            usage_records.append(result)
         result["final_action"] = None
         if result["status"] == "ok":
             try:

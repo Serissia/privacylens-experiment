@@ -112,5 +112,37 @@
         "description": "The unique identifier of the sent message."
       }
     ]
+  },
+  "SlackSendMessage": {
+    "toolkit": "Slack",
+    "name": "SlackSendMessage",
+    "summary": "Send a message and optional file to a channel or user.",
+    "parameters": [
+      {
+        "name": "recipient",
+        "type": "string",
+        "description": "The name of the recipient, channel name starts with '#', e.g., '#general', or user name starts with '@', e.g., '@john'.",
+        "required": true
+      },
+      {
+        "name": "message",
+        "type": "string",
+        "description": "The content of the message.",
+        "required": true
+      },
+      {
+        "name": "file_path",
+        "type": "string",
+        "description": "The local file path of the file to upload (optional).",
+        "required": false
+      }
+    ],
+    "returns": [
+      {
+        "name": "success",
+        "type": "boolean",
+        "description": "Whether the message was sent successfully."
+      }
+    ]
   }
 }
