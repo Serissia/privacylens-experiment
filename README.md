@@ -13,6 +13,7 @@ experiment/
   build_prompts.py         构造 A0/A1 请求
   run_input.py             调用模型生成最终动作
   run_filter.py            使用本地 Presidio 从已有 A0 派生 A2
+  pii_rules.py             一致伪名、明确姓名别名与概念泛化
   run_comment.py           独立评价隐私与任务完成度
   run_stat.py              汇总评价指标并生成图表
   common.py                文件操作与 API 请求
@@ -125,9 +126,11 @@ $filterResults = "artifacts/filters/<FILTER_RUN_ID>/results.jsonl"
 
 ## A2 本地 PII 过滤
 
-当前过滤版本为 `presidio_ner_v3`，使用英语 `en_core_web_sm` 的 NER、结构化 PII 识别器，以及通用称谓和问候语姓名规则。覆盖姓名、地点、日期时间、机构、国籍/宗教/政治群体，以及邮箱、电话、银行卡、IBAN、美国 SSN 等关键信息；命中内容分别替换为对应 `[ENTITY_TYPE]`。全局阈值为 0.4，NER 默认分为 0.85，姓名规则分为 0.7。[Presidio NLP 配置参考](https://github.com/data-privacy-stack/presidio/blob/main/docs/analyzer/customizing_nlp_models.md)。
+当前版本为 `presidio_faker_v4`：Presidio 与英语 `en_core_web_sm` 检测十类 PII，`pii_rules.py` 生成自然替换。Faker 伪名以源 A0 动作为作用域，邮件主题和正文共享映射；哈希种子与实体簇保证同源运行的替换可重现。唯一可匹配的全名、名字、姓氏和称谓复用同一身份，不同人物使用不同伪名。性别格式优先依据称谓，其次参考 Faker 英文名字词表提示；检测到的中文姓名使用中文伪名格式。
 
-处理帖子正文、邮件主题/正文和消息正文，保留原收件人及工具参数。每条 A0 对应一条 A2，过滤配置、来源关系、前后文本和命中记录保存在 `artifacts/filters/<run_id>/`。PII 检出与情境隐私泄露分别通过命中记录和独立评价衡量，过滤效果与任务完成能力共同报告。
+机构替换尽量保留银行、航空公司、酒店等类型；地点使用区域泛化，明确的中文城市/区县格式保留城市层级；日期和时刻泛化为月份、工作日或时段。正文中的代词按原文保留。词性和命名格式规则筛选明显的短句、标题及项目名称误报。检测阈值为 0.4，NER 默认分为 0.85，姓名规则分为 0.7。方法参考 [Presidio NLP 配置](https://github.com/data-privacy-stack/presidio/blob/main/docs/analyzer/customizing_nlp_models.md)和 [Faker 可重现生成](https://faker.readthedocs.io/en/master/#seeding-the-generator)。
+
+处理帖子正文、邮件主题/正文和消息正文，保留原收件人及工具参数。每条 A0 对应一条 A2，过滤配置、来源关系、前后文本、实体簇与映射表保存在 `artifacts/filters/<run_id>/`。PII 检出与情境隐私泄露分别通过命中记录和独立评价衡量；伪名及泛化造成的任务信息变化同时计入 helpfulness 评价。
 
 ## 离线统计与图表
 

@@ -77,7 +77,7 @@ def main():
     task_input.add_argument("--input", default=run_input.DEFAULT_INPUT, help="prepared messages JSONL")
     add_selection(task_input)
 
-    task_filter = commands.add_parser("filter", help="derive A2 from saved A0 actions with local Presidio filtering")
+    task_filter = commands.add_parser("filter", help="derive A2 with local Presidio detection and consistent Faker replacements")
     task_filter.add_argument("--input", required=True, help="one existing generation results JSONL file")
     add_selection(task_filter, model_stage=False)
 

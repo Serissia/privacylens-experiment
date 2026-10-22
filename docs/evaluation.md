@@ -58,9 +58,13 @@ gold 事实只进入隐私评价请求。条件标签、源提示版本与源模
 
 ## A0/A2 配对
 
-A2 是对具体 A0 最终动作的本地派生结果。配对键为 `case_id` 加 `source_a0.run_id`、`source_a0.path`、`source_a0.line`；同案例多次 A0 运行各有对应 A2。过滤运行另有自己的 `run_id`，A2 的 `requested_model` 和 `prompt_version` 沿用源 A0 的生成来源，过滤方法独立记录为 `filter_version`，当前版本为 `presidio_ner_v3`。
+A2 是对具体 A0 最终动作的本地派生结果。配对键为 `case_id` 加 `source_a0.run_id`、`source_a0.path`、`source_a0.line`；同案例多次 A0 运行各有对应 A2。过滤运行另有自己的 `run_id`，A2 的 `requested_model` 和 `prompt_version` 沿用源 A0 的生成来源，过滤方法独立记录为 `filter_version`，当前版本为 `presidio_faker_v4`。
 
 过滤器结合结构化 PII 规则、spaCy NER 与通用英文姓名格式规则。NER 的 0.85 是适配器赋予的默认分，姓名格式规则使用 0.7，全局阈值为 0.4，覆盖电话识别器的基础分；完整实体映射、规则、管道状态和包版本保存在过滤配置中。NER 可误识别机构、日期或称呼，人工复核同时记录漏检与过度过滤，并通过独立 helpfulness 评价衡量任务信息损失。命中坐标使用原字段的 Python 字符索引 `[start, end)`。
+
+`pii_rules.py` 以一条源 A0 为作用域，跨外发字段建立簇并生成可重现 Faker 伪名。明确的全名、名字、姓氏与带称谓的别名采用唯一匹配归并，歧义简称独立记录；原文代词保留。性别字段是称谓或 Faker 名字词表提供的提示，依据保存在 `gender_basis`。机构类型、月份和时段采用自然替换或概念泛化；结构化号码保留字符分隔格式。`entity_clusters` 与 `entity_mappings` 保存身份和实际替换，`discarded_candidates` 保存命名格式或词性筛选的候选。
+
+每字段的 `operation_count` 表示执行过的实体操作数，`replacement_count` 表示实际改变原文的操作数；已经宽泛的时间词可能保留原文。隐私裁判继续按 gold 敏感事实评价泄露，helpfulness 继续依据原任务、上下文及受众评分。伪名的流畅性与任务事实的一致性分别通过人工复核和现有评分标准评估。
 
 `comment` 的源文件与行号指向实际评价的 A2 记录，`source_run_id` 指向过滤运行；嵌套的 `source_a0` 继续关联原 A0。`source_model`、`source_prompt_version` 表示 A0 的生成来源。裁判计划和评价结果保留这两层来源及过滤版本，裁判消息中的 `final_action` 使用过滤后的动作。无效 A2 的原状态和错误保存在选定来源及 `skipped_generations` 中，裁判请求仅针对有效输出安排。
 
