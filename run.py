@@ -2,17 +2,18 @@
 
 import argparse
 
-from experiment import build_prompts, prepare_data, run_comment, run_input, run_stat
+from experiment import build_prompts, prepare_data, run_comment, run_input, run_stat, run_filter
 from experiment.common import check_budget, print_token_usage, project_path, read_json
 
 
-def add_selection(parser):
+def add_selection(parser, *, model_stage=True):
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--case-id", nargs="+", help="select case IDs")
     selection.add_argument("--all", action="store_true", help="select every case in the input")
     parser.add_argument("--limit", type=int, help="maximum number of selected cases")
-    parser.add_argument("--max-requests", type=int, help="request attempt limit (default: selected request plan size)")
-    parser.add_argument("--dry-run", action="store_true", help="save a plan using .env.example")
+    if model_stage:
+        parser.add_argument("--max-requests", type=int, help="request attempt limit (default: selected request plan size)")
+        parser.add_argument("--dry-run", action="store_true", help="save a plan using .env.example")
 
 
 def add_evaluation_paths(parser):
@@ -72,16 +73,20 @@ def main():
     prompts.add_argument("--input", default="data/pilot/inputs.json")
     prompts.add_argument("--output", default=build_prompts.DEFAULT_OUTPUT)
 
-    task_input = commands.add_parser("input", help="generate candidate actions")
+    task_input = commands.add_parser("input", help="generate A0/A1 candidate actions")
     task_input.add_argument("--input", default=run_input.DEFAULT_INPUT, help="prepared messages JSONL")
     add_selection(task_input)
+
+    task_filter = commands.add_parser("filter", help="derive A2 from saved A0 actions with local Presidio filtering")
+    task_filter.add_argument("--input", required=True, help="one existing generation results JSONL file")
+    add_selection(task_filter, model_stage=False)
 
     comment = commands.add_parser("comment", help="assess saved candidate actions")
     comment.add_argument("--input", nargs="+", required=True, help="one or more generation results JSONL files")
     add_evaluation_paths(comment)
     add_selection(comment)
 
-    pipeline = commands.add_parser("pipeline", help="generate actions, then assess their results")
+    pipeline = commands.add_parser("pipeline", help="generate and assess A0/A1 actions (input + comment)")
     pipeline.add_argument("--input", default=run_input.DEFAULT_INPUT, help="prepared messages JSONL")
     add_evaluation_paths(pipeline)
     add_selection(pipeline)
@@ -97,6 +102,8 @@ def main():
         build_prompts.run(args)
     elif args.command == "stat":
         run_stat.run(args)
+    elif args.command == "filter":
+        run_filter.run(args)
     else:
         run_models(args)
 

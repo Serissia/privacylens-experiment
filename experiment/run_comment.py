@@ -34,6 +34,20 @@ def source_key(record):
     return record["source_path"], record["source_line"]
 
 
+def source_metadata(source):
+    return {
+        "case_id": source["case_id"],
+        "condition": source["condition"],
+        "source_run_id": source["run_id"],
+        "source_prompt_version": source["prompt_version"],
+        "source_model": source["requested_model"],
+        "source_path": source["source_path"],
+        "source_line": source["source_line"],
+        "filter_version": source.get("filter_version"),
+        "source_a0": source.get("source_a0"),
+    }
+
+
 def build_plans(sources, contexts, labels, settings):
     tool_specs = read_json(ROOT / "prompts/final_action_specs.json")
     judge_prompts = {
@@ -68,13 +82,7 @@ def build_plans(sources, contexts, labels, settings):
         ):
             # 条件与生成版本仅作记录；裁判消息使用任务所需的评价材料。
             metadata = {
-                "case_id": case_id,
-                "condition": source["condition"],
-                "source_run_id": source["run_id"],
-                "source_prompt_version": source["prompt_version"],
-                "source_model": source["requested_model"],
-                "source_path": source["source_path"],
-                "source_line": source["source_line"],
+                **source_metadata(source),
                 "sample_type": "sensitive" if sensitive_items else "non_sensitive",
                 "kind": kind,
                 "prompt_version": JUDGE_VERSIONS[kind],
@@ -128,7 +136,7 @@ def summarize(sources, results, planned_count, labels):
 
     grouped = defaultdict(list)
     for source in sources:
-        grouped[(source["condition"], source["prompt_version"], source["requested_model"])].append(source)
+        grouped[(source["condition"], source["prompt_version"], source["requested_model"], source.get("filter_version"))].append(source)
 
     def ratio(numerator, denominator):
         return numerator / denominator if denominator else None
@@ -187,11 +195,12 @@ def summarize(sources, results, planned_count, labels):
         }
 
     groups = []
-    for (condition, prompt_version, model), group in grouped.items():
+    for (condition, prompt_version, model, filter_version), group in grouped.items():
         groups.append({
             "condition": condition,
             "source_prompt_version": prompt_version,
             "source_model": model,
+            "filter_version": filter_version,
             **metrics(group),
             "cohorts": {
                 cohort: metrics([
@@ -202,7 +211,7 @@ def summarize(sources, results, planned_count, labels):
             },
         })
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "source_count": len(sources),
         "unique_case_count": len({row["case_id"] for row in sources}),
         "valid_generation_count": sum(row["status"] in VALID_GENERATION_STATUSES for row in sources),
@@ -218,7 +227,7 @@ def summarize(sources, results, planned_count, labels):
             for kind in JUDGE_VERSIONS
         },
         "skipped_generations": [
-            {"source_path": row["source_path"], "source_line": row["source_line"], "case_id": row["case_id"], "condition": row["condition"], "status": row["status"]}
+            {**source_metadata(row), "status": row["status"], "error": row.get("error")}
             for row in sources if row["status"] not in VALID_GENERATION_STATUSES
         ],
         "groups": groups,
@@ -244,6 +253,10 @@ def run(args, usage_records=None):
             "context_path": project_path(args.context).as_posix(),
             "labels_path": project_path(args.labels).as_posix(),
             "source_count": len(sources),
+            "selected_sources": [
+                {**source_metadata(source), "status": source["status"], "error": source.get("error")}
+                for source in sources
+            ],
             "judge_versions": JUDGE_VERSIONS,
         },
     )

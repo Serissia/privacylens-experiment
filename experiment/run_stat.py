@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from .common import project_path, read_json, write_json
 
 
-GROUP_FIELDS = ("condition", "source_prompt_version", "source_model")
+GROUP_FIELDS = ("condition", "source_prompt_version", "source_model", "filter_version")
 COLORS = {"A0": "#3973AC", "A1": "#27836D", "A2": "#CB8735"}
 
 
@@ -18,7 +18,7 @@ def flatten_summary(summary, summary_id):
             score_counts = values.pop("helpfulness_score_counts")
             rows.append({
                 "summary_id": summary_id,
-                **{field: group[field] for field in GROUP_FIELDS},
+                **{field: group.get(field) for field in GROUP_FIELDS},
                 "privacy_judge_models": ", ".join(summary["judge_models"]["privacy"]),
                 "helpfulness_judge_models": ", ".join(summary["judge_models"]["helpfulness"]),
                 "privacy_judge_versions": ", ".join(summary["judge_versions"]["privacy"]),
@@ -48,6 +48,7 @@ def draw_metrics(rows, panels, title, output_path):
     )
     labels = [
         f"{row['summary_id']} / {row['condition']} / {row['source_prompt_version']}\n"
+        f"filter={row['filter_version'] if row['filter_version'] is not None else 'null'}\n"
         f"{row['source_model']} / {row['cohort']} (n={row['source_count']})"
         for row in rows
     ]

@@ -2,7 +2,7 @@
 
 基于 [PrivacyLens](https://github.com/SALT-NLP/PrivacyLens) 数据，使用 Qwen 比较基础提示、隐私增强提示和 PII 过滤对情境隐私泄露与任务完成的影响。项目属于 [Pattern Recognition 课程 Assignment 1 的 T02-B](https://github.com/tulip-lab/pattern-classification-lab/blob/develop/Assignments/frontier-ai-presentation/topics.md)，采用独立轻量实现。
 
-实验条件为 A0 基础提示、A1 隐私增强提示与 A2 对对应 A0 输出进行 PII 过滤。当前入口连接任务输入、模型生成与自动评价；评价结果通过人工抽查校准。
+实验条件为 A0 基础提示、A1 隐私增强提示与 A2 对对应 A0 输出进行 PII 过滤。当前入口连接任务输入、模型生成、本地过滤与自动评价；评价结果通过人工抽查校准。
 
 ## 目录
 
@@ -12,6 +12,7 @@ experiment/
   prepare_data.py          准备生成输入与评价标签
   build_prompts.py         构造 A0/A1 请求
   run_input.py             调用模型生成最终动作
+  run_filter.py            使用本地 Presidio 从已有 A0 派生 A2
   run_comment.py           独立评价隐私与任务完成度
   run_stat.py              汇总评价指标并生成图表
   common.py                文件操作与 API 请求
@@ -28,6 +29,7 @@ artifacts/                 本地请求计划、运行与评价产物
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m spacy download en_core_web_sm
 ```
 
 按照 `.env.example` 配置本机 `.env`：
@@ -54,39 +56,78 @@ REF_MODEL=qwen3.5-flash
 
 提示阶段默认读取 `data/pilot/inputs.json`，生成 `artifacts/prompts/pilot_v2.jsonl`；支持 `--input` 与 `--output` 指定路径。A0 为 `a0_v1`，A1 为 `a1_v2`，两者共用同一份案例正文，A1 追加情境隐私要求。模板说明见 [prompts/README.md](prompts/README.md)。
 
-## 运行两个阶段
+## 运行流程
 
-先离线查看两个案例的生成请求计划：
+三组实验使用 `input → filter → comment → stat`。其中 A0/A1 来自模型生成，A2 由同一次 A0 输出派生：
 
-```powershell
-.\.venv\Scripts\python.exe .\run.py input --all --limit 2 --dry-run
+```mermaid
+flowchart LR
+    I["input：生成 A0/A1"] --> F["filter：A0 派生 A2"]
+    I --> C["comment：评价 A0/A1/A2"]
+    F --> C
+    C --> S["stat：统计与图表"]
 ```
 
-已有生成结果可单独评价。将下面的 `<RUN_ID>` 替换为相应运行目录名：
+| 命令 | 输入 → 输出 | 执行方式 |
+| --- | --- | --- |
+| `input` | 提示 JSONL → A0/A1 最终动作 | 调用 BASE_MODEL |
+| `filter` | 生成结果中的 A0 → 配对 A2 | 本地 Presidio |
+| `comment` | 一个或多个 A0/A1/A2 结果文件 → 裁判记录与 summary.json | 每条有效输出调用 REF_MODEL 两次 |
+| `stat` | 一个或多个 summary.json → JSON 统计和 PNG 图 | 本地计算 |
+| `pipeline` | 提示 JSONL → A0/A1 动作及其评价 | `input → comment` 的快捷入口 |
+
+完成上面的样本准备后，在项目根目录依次执行。每一步将 `<..._ID>` 替换为相应命令打印的实际目录名：
 
 ```powershell
-.\.venv\Scripts\python.exe .\run.py comment --input "artifacts/runs/<RUN_ID>/results.jsonl" --all --dry-run
+# 生成 A0/A1
+.\.venv\Scripts\python.exe .\run.py input --all
+$inputResults = "artifacts/runs/<RUN_ID>/results.jsonl"
+
+# 从同一批 A0 派生 A2
+.\.venv\Scripts\python.exe .\run.py filter --input $inputResults --all
+$filterResults = "artifacts/filters/<FILTER_RUN_ID>/results.jsonl"
+
+# 一起评价三个条件
+.\.venv\Scripts\python.exe .\run.py comment --input $inputResults $filterResults --all
+$commentSummary = "artifacts/comments/<COMMENT_RUN_ID>/summary.json"
+
+# 统计绘图
+.\.venv\Scripts\python.exe .\run.py stat --input $commentSummary
 ```
 
-`comment` 的 `--input` 接受一个或多个结果文件；`--context` 和 `--labels` 分别指定对应任务上下文与评价标签，默认使用 `data/pilot/` 下的文件。
-
-也可以通过统一入口串联生成和评价：
+A0/A1 的快捷运行命令为：
 
 ```powershell
-.\.venv\Scripts\python.exe .\run.py pipeline --all --limit 1 --dry-run
+.\.venv\Scripts\python.exe .\run.py pipeline --all
 ```
 
-`--dry-run` 使用 `.env.example` 保存离线请求计划。`pipeline` 的离线模式保存生成计划并核对整个流程的请求额度，实际评判消息由生成结果决定。移除 `--dry-run` 后，入口读取本机模型配置并真实调用 API。
+已有 pipeline 结果时，复用其生成文件执行 `filter`，再单独评价 A2：
 
-| 参数 | 含义 |
+```powershell
+$inputResults = "artifacts/runs/<RUN_ID>/results.jsonl"
+.\.venv\Scripts\python.exe .\run.py filter --input $inputResults --all
+$filterResults = "artifacts/filters/<FILTER_RUN_ID>/results.jsonl"
+.\.venv\Scripts\python.exe .\run.py comment --input $filterResults --all
+.\.venv\Scripts\python.exe .\run.py stat --input "artifacts/comments/<A0_A1_COMMENT_ID>/summary.json" "artifacts/comments/<A2_COMMENT_ID>/summary.json"
+```
+
+此处 `$inputResults` 为 pipeline 产生的 `artifacts/runs/<RUN_ID>/results.jsonl`。`comment` 的 `--context`、`--labels` 默认指向 `data/pilot/inputs.json`、`data/pilot/labels.json`，可指定其他数据集对应的路径。
+
+| 参数 | 适用命令与含义 |
 | --- | --- |
-| `--input` | 生成阶段读取请求 JSONL，评价阶段读取结果 JSONL |
-| `--case-id` | 选择一个或多个案例 |
-| `--all` | 选择输入文件中的全部案例 |
-| `--limit` | 最多选择多少个案例，保留同案例的全部条件 |
-| `--max-requests` | 本阶段或整个 pipeline 的请求尝试上限；缺省时按选定请求计划自动计算 |
+| `--case-id` | input/filter/comment/pipeline：选择一个或多个案例 |
+| `--all` | input/filter/comment/pipeline：选择全部案例 |
+| `--limit` | input/filter/comment/pipeline：最多选择 N 个案例，保留其全部条件或对应 A0 |
+| `--max-requests` | input/comment/pipeline：请求尝试上限，缺省按实际计划计算 |
+| `--dry-run` | input/comment/pipeline：使用 .env.example 保存离线计划 |
 
-默认选择输入中的第一个案例。A0/A1 配对下，N 个案例的生成上限自动设为 2N，评价为 4N，完整 pipeline 为 6N；独立评价按有效生成数量计算实际请求数。同案例重复观测和不同条件数量也按实际请求计划计算。显式传入 `--max-requests` 时，额度在调用前核对；每条请求尝试一次，故障记录后停止后续调用。
+案例选择缺省为第一个案例。每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，三组流程合计 8N 次；A0/A1 的 `pipeline` 合计 6N 次。请求尝试一次，故障记录后停止；无效生成按状态保留，评价额度按有效输出计算。
+
+## A2 本地 PII 过滤
+
+当前过滤版本为 `presidio_ner_v3`，使用英语 `en_core_web_sm` 的 NER、结构化 PII 识别器，以及通用称谓和问候语姓名规则。覆盖姓名、地点、日期时间、机构、国籍/宗教/政治群体，以及邮箱、电话、银行卡、IBAN、美国 SSN 等关键信息；命中内容分别替换为对应 `[ENTITY_TYPE]`。全局阈值为 0.4，NER 默认分为 0.85，姓名规则分为 0.7。[Presidio NLP 配置参考](https://github.com/data-privacy-stack/presidio/blob/main/docs/analyzer/customizing_nlp_models.md)。
+
+处理帖子正文、邮件主题/正文和消息正文，保留原收件人及工具参数。每条 A0 对应一条 A2，过滤配置、来源关系、前后文本和命中记录保存在 `artifacts/filters/<run_id>/`。PII 检出与情境隐私泄露分别通过命中记录和独立评价衡量，过滤效果与任务完成能力共同报告。
 
 ## 离线统计与图表
 
@@ -104,7 +145,7 @@ REF_MODEL=qwen3.5-flash
 | `helpfulness.png` | 分别展示敏感与非敏感样本。依次为任务完成度均分（0–3 分）、任务完成率（分数 >=2 的输出数 / 有效任务评分数）、拒绝率（拒绝输出数 / 有效生成输出数）。 |
 | `coverage.png` | 分别展示敏感与非敏感样本。前三项为有效生成数、有效隐私评价数、有效任务评价数各自占选定输出数的比例；第四项为已有效评价的敏感事实项数 / 计划敏感事实项总数，用于查看生成失败、评价失败或缺失造成的覆盖缺口。 |
 
-各图保留条件、提示版本、被测模型与样本组。比例标注同时显示分子和分母，均分标注有效评分数量；标签中的 `n` 是选定输出条数，同案例多次运行属于重复观测。多份输入以 S1、S2 等编号独立展示，来源路径和裁判配置见 `config.json`。
+各图保留 A0/A1/A2 条件、生成提示版本、被测模型、过滤版本与样本组。统计按过滤版本分组；A0/A1 及旧产物缺失的过滤版本统一为 JSON `null`，图中显示 `filter=null`。比例标注同时显示分子和分母，均分标注有效评分数量；标签中的 `n` 是选定输出条数，同案例多次运行属于重复观测。多份输入以 S1、S2 等编号独立展示，来源路径和裁判配置见 `config.json`。
 
 标签中的 `sensitive_info_items` 非空表示敏感样本，空清单表示非敏感样本。汇总同时统计泄露案例数、泄露事实项数、已评价事实项数与计划事实项总数；隐私泄露率使用敏感样本的有效评价作为分母，非敏感样本单独展示任务完成与拒绝指标。零分母记录为 `null`，图中显示 `N/A`。指标定义见 [评价协议](docs/evaluation.md)。
 
@@ -116,6 +157,7 @@ REF_MODEL=qwen3.5-flash
 
 - `artifacts/previews/input/`、`previews/comment/`：离线请求计划。
 - `artifacts/runs/<run_id>/`：生成配置、原始响应和候选动作。
+- `artifacts/filters/<run_id>/`：本地 A2 配置、来源配对、过滤动作和字段审计记录。
 - `artifacts/comments/<run_id>/`：裁判配置、原始响应、逐项评分与 `summary.json`。
 - `artifacts/stats/<时间戳>/`：JSON 统计数据、来源配置与三张 PNG 图。
 
