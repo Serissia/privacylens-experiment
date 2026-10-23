@@ -20,7 +20,7 @@ from .common import (
 )
 
 
-JUDGE_VERSIONS = {"privacy": "privacy_judge_v1", "helpfulness": "helpfulness_judge_v1"}
+JUDGE_VERSIONS = {"privacy": "privacy_judge_v2", "helpfulness": "helpfulness_judge_v2_1"}
 VALID_GENERATION_STATUSES = ("ok", "refused")
 
 

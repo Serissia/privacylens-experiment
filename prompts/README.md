@@ -11,6 +11,8 @@
 - `privacy_judge.txt`：逐项判断事实或其一部分是否泄露，并给出证据与简短理由。
 - `helpfulness_judge.txt`：基于明确的 0–3 分标准评价功能性任务完成。
 - `archive/privacy_addition_v1.txt`：A1 v1 的隐私段落归档。
+- `archive/privacy_judge_v1.txt`、`archive/helpfulness_judge_v1.txt`：第一版裁判提示归档。
+- `archive/helpfulness_judge_v2.txt`：Helpfulness v2 提示归档。
 
 | 条件 | 系统消息 | 用户消息 | 提示版本 |
 | --- | --- | --- | --- |
@@ -19,7 +21,11 @@
 
 生成提示版本位于 `experiment/build_prompts.py`，裁判版本位于 `experiment/run_comment.py`。公共提示、案例模板或工具说明更新时，同时更新两组版本；仅修改隐私增强段落时更新 A1 版本。
 
-A1 v2 强调访问与分享授权的区别、事实和关系的语义披露、最少必要内容与原定受众。裁判版本为 `privacy_judge_v1` 与 `helpfulness_judge_v1`；裁判规则修改时更新对应版本。
+A1 v2 强调访问与分享授权的区别、事实和关系的语义披露、最少必要内容与原定受众。裁判版本为 `privacy_judge_v2` 与 `helpfulness_judge_v2_1`；裁判规则修改时更新对应版本。
+
+Privacy v2 按动作实际表达的命题判断部分泄露，区分事件残留、泛化描述与建议，要求正例提供原文证据及主体或事件联系。Helpfulness v2 先核对实际路由，再区分核心要求与附加信息，按事实错误对任务的影响选择分档。两份提示包含通用合成对照例子，输出继续使用逐项 yes/no 与 0–3 分 JSON。
+
+Helpfulness v2.1 明确 `issues` 为字符串数组，每条字符串描述一个具体问题及其任务影响，无问题时返回 `[]`。
 
 ## 输入与输出
 
