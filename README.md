@@ -13,7 +13,11 @@ experiment/
   build_prompts.py         构造 A0/A1 请求
   run_input.py             调用模型生成最终动作
   run_filter.py            使用本地 Presidio 从已有 A0 派生 A2
+  gliner_recognizer.py     GLiNER 标签映射与长文本分块
+  context_policy.py        正反项标签、上下文识别与片段处理决策
+  setup_filter.py          下载过滤模型与 tokenizer
   pii_rules.py             一致伪名、明确姓名别名与概念泛化
+  reproducibility.py       固定随机种子与确定性配置
   run_comment.py           独立评价隐私与任务完成度
   run_stat.py              汇总评价指标并生成图表
   common.py                文件操作与 API 请求
@@ -31,7 +35,10 @@ artifacts/                 本地请求计划、运行与评价产物
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m spacy download en_core_web_sm
+.\.venv\Scripts\python.exe -X utf8 .\run.py setup-filter
 ```
+
+`setup-filter` 首次联网下载 `urchade/gliner_medium-v2.1` 的权重、编码器配置与 tokenizer，保存至 `models/gliner_medium-v2.1/`。A2 随后在本地 CPU 运行，模型配置与分块规则见 [过滤说明](docs/filtering.md)。
 
 按照 `.env.example` 配置本机 `.env`：
 
@@ -121,14 +128,18 @@ $filterResults = "artifacts/filters/<FILTER_RUN_ID>/results.jsonl"
 | `--limit` | input/filter/comment/pipeline：最多选择 N 个案例，保留其全部条件或对应 A0 |
 | `--max-requests` | input/comment/pipeline：请求尝试上限，缺省按实际计划计算 |
 | `--dry-run` | input/comment/pipeline：使用 .env.example 保存离线计划 |
+| `--context` | filter/comment/pipeline：任务上下文 JSON 数组路径，默认 data/pilot/inputs.json；按 case_id 匹配 |
+| `--labels` | comment/pipeline：评价标签 JSON 数组路径，默认 data/pilot/labels.json |
 
 案例选择缺省为第一个案例。每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，三组流程合计 8N 次；A0/A1 的 `pipeline` 合计 6N 次。请求尝试一次，故障记录后停止；无效生成按状态保留，评价额度按有效输出计算。
 
 ## A2 本地 PII 过滤
 
-当前版本为 `presidio_faker_v4`：Presidio 与英语 `en_core_web_sm` 检测十类 PII，`pii_rules.py` 生成自然替换。Faker 伪名以源 A0 动作为作用域，邮件主题和正文共享映射；哈希种子与实体簇保证同源运行的替换可重现。唯一可匹配的全名、名字、姓氏和称谓复用同一身份，不同人物使用不同伪名。性别格式优先依据称谓，其次参考 Faker 英文名字词表提示；检测到的中文姓名使用中文伪名格式。
+当前版本为 `presidio_gliner_v6`：GLiNER 识别人名、机构、地点、时间等语义实体，Presidio 保留邮箱、电话、信用卡、IBAN 与美国社保号规则，并接入航班号、车次号和预订号，共十三类实体。spaCy 提供词性和词形，辅助现有筛选。长文本按完整编码输入的 token 预算分块，保留重叠区和原文坐标。
 
-机构替换尽量保留银行、航空公司、酒店等类型；地点使用区域泛化，明确的中文城市/区县格式保留城市层级；日期和时刻泛化为月份、工作日或时段。正文中的代词按原文保留。词性和命名格式规则筛选明显的短句、标题及项目名称误报。检测阈值为 0.4，NER 默认分为 0.85，姓名规则分为 0.7。方法参考 [Presidio NLP 配置](https://github.com/data-privacy-stack/presidio/blob/main/docs/analyzer/customizing_nlp_models.md)和 [Faker 可重现生成](https://faker.readthedocs.io/en/master/#seeding-the-generator)。
+Faker 英文伪名与编号以源 A0 动作为作用域，跨字段共享映射。明确别名复用同一身份；机构尽量保留类型，地点和时间使用概括，编号保留字符格式。模型阈值与全局阈值均为 0.4，姓名格式规则分为 0.7；模型分数和人工规则分分别记录。
+
+`context_labels_v1` 使用同一个 GLiNER 模型进行第二次多标签识别：正项标签识别名人、名胜、旅行目的地、求职公司与公开活动；反项标签识别私人姓名、住宅、医疗／家庭事实及私人预约。称呼与落款按位置保留，私人住宅及敏感片段使用明确占位概括，其余未豁免实体使用一致替换。正项阈值为 0.6，住宅为 0.6，私人预约为 0.65，其余反项为 0.4。每个片段的标签证据与保留／替换决定进入审计。标签是模型预测，实际泄露与误删仍需独立评价。
 
 处理帖子正文、邮件主题/正文和消息正文，保留原收件人及工具参数。每条 A0 对应一条 A2，过滤配置、来源关系、前后文本、实体簇与映射表保存在 `artifacts/filters/<run_id>/`。PII 检出与情境隐私泄露分别通过命中记录和独立评价衡量；伪名及泛化造成的任务信息变化同时计入 helpfulness 评价。
 

@@ -10,9 +10,12 @@ from time import perf_counter
 import requests
 from dotenv import dotenv_values, load_dotenv
 
+from .reproducibility import RANDOM_SEED
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUT_PARAMETERS = {
+    "seed": RANDOM_SEED,
     "temperature": 0,
     "max_tokens": 1024,
     "enable_thinking": False,

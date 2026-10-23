@@ -2,7 +2,7 @@
 
 import argparse
 
-from experiment import build_prompts, prepare_data, run_comment, run_input, run_stat, run_filter
+from experiment import build_prompts, prepare_data, run_comment, run_input, run_stat
 from experiment.common import check_budget, print_token_usage, project_path, read_json
 
 
@@ -64,6 +64,8 @@ def main():
     parser = argparse.ArgumentParser(description="Prepare, generate, and assess PrivacyLens actions.")
     commands = parser.add_subparsers(dest="command", required=True)
 
+    commands.add_parser("setup-filter", help="download pinned English GLiNER weights and tokenizer")
+
     prepare = commands.add_parser("prepare", help="prepare development cases")
     prepare.add_argument("--source", default="data/main_data.json")
     prepare.add_argument("--output-dir", default="data/pilot")
@@ -77,8 +79,9 @@ def main():
     task_input.add_argument("--input", default=run_input.DEFAULT_INPUT, help="prepared messages JSONL")
     add_selection(task_input)
 
-    task_filter = commands.add_parser("filter", help="derive A2 with local Presidio detection and consistent Faker replacements")
+    task_filter = commands.add_parser("filter", help="derive A2 with local GLiNER/Presidio detection and consistent replacements")
     task_filter.add_argument("--input", required=True, help="one existing generation results JSONL file")
+    task_filter.add_argument("--context", default="data/pilot/inputs.json", help="task contexts for keep/protect labels")
     add_selection(task_filter, model_stage=False)
 
     comment = commands.add_parser("comment", help="assess saved candidate actions")
@@ -103,7 +106,11 @@ def main():
     elif args.command == "stat":
         run_stat.run(args)
     elif args.command == "filter":
+        from experiment import run_filter
         run_filter.run(args)
+    elif args.command == "setup-filter":
+        from experiment import setup_filter
+        setup_filter.run()
     else:
         run_models(args)
 

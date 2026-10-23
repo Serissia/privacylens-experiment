@@ -72,13 +72,15 @@ gold 事实只进入隐私评价请求。条件标签、源提示版本与源模
 
 ## A0/A2 配对
 
-A2 是对具体 A0 最终动作的本地派生结果。配对键为 `case_id` 加 `source_a0.run_id`、`source_a0.path`、`source_a0.line`；同案例多次 A0 运行各有对应 A2。过滤运行另有自己的 `run_id`，A2 的 `requested_model` 和 `prompt_version` 沿用源 A0 的生成来源，过滤方法独立记录为 `filter_version`，当前版本为 `presidio_faker_v4`。
+A2 是对具体 A0 最终动作的本地派生结果。配对键为 `case_id` 加 `source_a0.run_id`、`source_a0.path`、`source_a0.line`；同案例多次 A0 运行各有对应 A2。过滤运行另有自己的 `run_id`，A2 的 `requested_model` 和 `prompt_version` 沿用源 A0 的生成来源，过滤方法独立记录为 `filter_version`，当前版本为 `presidio_gliner_v6`。
 
-过滤器结合结构化 PII 规则、spaCy NER 与通用英文姓名格式规则。NER 的 0.85 是适配器赋予的默认分，姓名格式规则使用 0.7，全局阈值为 0.4，覆盖电话识别器的基础分；完整实体映射、规则、管道状态和包版本保存在过滤配置中。NER 可误识别机构、日期或称呼，人工复核同时记录漏检与过度过滤，并通过独立 helpfulness 评价衡量任务信息损失。命中坐标使用原字段的 Python 字符索引 `[start, end)`。
+过滤器结合结构化 PII 规则、GLiNER 英文 NER 与通用英文姓名格式规则；spaCy 提供词性与词形。GLiNER 使用模型实际输出分数，模型阈值和全局阈值均为 0.4，姓名格式规则使用 0.7；完整标签映射、模型来源、分块预算、管道状态与包版本保存在过滤配置中。NER 可误识别机构、日期或称呼，人工复核同时记录漏检与过度过滤，并通过独立 helpfulness 评价衡量任务信息损失。命中坐标使用原字段的 Python 字符索引 `[start, end)`。
 
-`pii_rules.py` 以一条源 A0 为作用域，跨外发字段建立簇并生成可重现 Faker 伪名。明确的全名、名字、姓氏与带称谓的别名采用唯一匹配归并，歧义简称独立记录；原文代词保留。性别字段是称谓或 Faker 名字词表提供的提示，依据保存在 `gender_basis`。机构类型、月份和时段采用自然替换或概念泛化；结构化号码保留字符分隔格式。`entity_clusters` 与 `entity_mappings` 保存身份和实际替换，`discarded_candidates` 保存命名格式或词性筛选的候选。
+`pii_rules.py` 以一条源 A0 为作用域，跨外发字段建立簇并生成可重现英文 Faker 伪名。明确的全名、名字、姓氏与带称谓的别名采用唯一匹配归并，歧义简称独立记录；原文代词保留。性别字段是称谓或 Faker 名字词表提供的提示，依据保存在 `gender_basis`。机构类型、月份和时段采用自然替换或概念泛化；结构化号码、航班号、车次号与预订号保留字符分隔格式。`entity_clusters` 与 `entity_mappings` 保存身份和实际替换，`discarded_candidates` 保存命名格式或词性筛选的候选，字段级 `gliner_chunks` 保存完整原文中的分块范围及包含标签前缀的输入 token 数。具体规则见 [过滤说明](filtering.md)。
 
 每字段的 `operation_count` 表示执行过的实体操作数，`replacement_count` 表示实际改变原文的操作数；已经宽泛的时间词可能保留原文。隐私裁判继续按 gold 敏感事实评价泄露，helpfulness 继续依据原任务、上下文及受众评分。伪名的流畅性与任务事实的一致性分别通过人工复核和现有评分标准评估。
+
+v6 的第二次 GLiNER 推理使用通用正反项标签及最小任务上下文，决定具体片段的保留、替换或概括。输入上下文的允许字段、截取范围、阈值、模型标签和操作优先级进入过滤配置；实际证据和决策进入字段审计。敏感片段概括可能只覆盖复合事实的一部分，因此仍逐项评估剩余事件内容。消融比较时固定来源、替换种子及上下文预算，分别报告误删、错误豁免与泄露。
 
 `comment` 的源文件与行号指向实际评价的 A2 记录，`source_run_id` 指向过滤运行；嵌套的 `source_a0` 继续关联原 A0。`source_model`、`source_prompt_version` 表示 A0 的生成来源。裁判计划和评价结果保留这两层来源及过滤版本，裁判消息中的 `final_action` 使用过滤后的动作。无效 A2 的原状态和错误保存在选定来源及 `skipped_generations` 中，裁判请求仅针对有效输出安排。
 

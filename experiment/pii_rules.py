@@ -7,22 +7,23 @@ from collections import Counter, defaultdict
 
 from faker import Faker
 
+from .reproducibility import RANDOM_SEED
 
-RULES_VERSION = "consistent_surrogates_v1"
+
+RULES_VERSION = "consistent_surrogates_v3"
 RULE_CONFIGURATION = {
     "scope": "one A0 action, shared by all outbound fields",
-    "seed": "BLAKE2b of source scope, entity type and canonical surface",
+    "seed": "BLAKE2b of fixed seed 42, source A0 scope, entity type and canonical surface",
     "person_aliases": "unique full name, given name, surname and titled surname",
     "gender": "honorific, then exclusive Faker English name-list hint, otherwise unknown",
-    "locales": {"default": "en_US", "CJK": "zh_CN"},
+    "locale": "en_US",
     "temporal_policy": "coarse periods and month-level descriptions",
     "organization_policy": "synthetic names with recognizable organization suffixes",
-    "location_policy": "coarse areas; explicit Chinese city/district suffixes retain the city",
+    "location_policy": "coarse areas",
+    "identifier_policy": "consistent format-preserving surrogates for structured numbers and travel references",
 }
+FORMATTED_ENTITIES = {"PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "IBAN_CODE", "FLIGHT_NUMBER", "TRAIN_NUMBER", "BOOKING_REFERENCE"}
 TITLE = re.compile(r"^(Mr\.?|Mrs\.?|Ms\.?|Miss|Dr\.?|Prof\.?)\s+", re.I)
-CJK = re.compile(r"[\u3400-\u9fff]")
-ZH_TITLE = re.compile(r"(先生|女士|小姐|总|经理|博士|教授)$")
-COMPOUND_SURNAMES = ("欧阳", "司马", "诸葛", "上官", "夏侯", "司徒", "司空", "皇甫", "尉迟", "公孙", "慕容", "令狐")
 ORG_SUFFIXES = {
     "bank": "Bank", "airlines": "Airlines", "airline": "Airlines", "hotel": "Hotel",
     "hotels": "Hotels", "hospital": "Hospital", "university": "University", "solutions": "Solutions",
@@ -38,30 +39,16 @@ def normalize(text):
 def person_parts(text):
     text = text.strip()
     title = TITLE.match(text)
-    zh_title = ZH_TITLE.search(text)
     prefix = title.group() if title else ""
-    suffix = zh_title.group() if zh_title else ""
-    bare = text[len(prefix):len(text) - len(suffix) if suffix else None]
-    if CJK.search(bare):
-        last = next((name for name in COMPOUND_SURNAMES if bare.startswith(name)), bare[:1])
-        first = bare[len(last):]
-    else:
-        tokens = bare.split()
-        first, last = (tokens[0], tokens[-1]) if len(tokens) > 1 else (bare, bare)
-    gender = "male" if normalize(prefix).rstrip(".") == "mr" or suffix == "先生" else "female" if normalize(prefix).rstrip(".") in ("mrs", "ms", "miss") or suffix in ("女士", "小姐") else "unknown"
-    return {"bare": bare, "first": first, "last": last, "prefix": prefix, "suffix": suffix, "gender": gender}
+    bare = text[len(prefix):]
+    tokens = bare.split()
+    first, last = (tokens[0], tokens[-1]) if len(tokens) > 1 else (bare, bare)
+    gender = "male" if normalize(prefix).rstrip(".") == "mr" else "female" if normalize(prefix).rstrip(".") in ("mrs", "ms", "miss") else "unknown"
+    return {"bare": bare, "first": first, "last": last, "prefix": prefix, "gender": gender}
 
 
 def generalize(entity_type, text):
     """Use literal suffixes and time formats to retain a coarser description."""
-    if entity_type == "LOCATION" and CJK.search(text):
-        city = re.match(r"(.+?市).+(?:区|县)", text)
-        if city:
-            return city[1] + "某区"
-    if entity_type == "ORGANIZATION" and CJK.search(text):
-        for suffix in ("银行", "医院", "大学", "公司"):
-            if suffix in text:
-                return "某" + suffix
     if entity_type != "DATE_TIME":
         return None
     clock = re.fullmatch(r"(\d{1,2})(?::\d{2})?\s*(AM|PM)?", text, re.I)
@@ -77,7 +64,7 @@ def generalize(entity_type, text):
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
         return f"some days in {MONTHS[int(text[5:7]) - 1]} {text[:4]}"
     # 已经宽泛的时间词保留其粒度，精确但未解析的表达使用自然概括。
-    if normalize(text) in {"night", "day", "morning", "afternoon", "evening", "today", "tomorrow", "yesterday", "next week", "this week", "last week", "next month", "this month", "last month"}:
+    if normalize(text) in {"night", "day", "morning", "afternoon", "evening", "today", "tomorrow", "yesterday", "recently", "soon", "earlier", "later", "next week", "this week", "last week", "next month", "this month", "last month"}:
         return text
     if normalize(text) in {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}:
         return "a weekday" if normalize(text) not in {"saturday", "sunday"} else "a weekend day"
@@ -87,6 +74,8 @@ def generalize(entity_type, text):
 def accept_candidate(entity_type, text, tokens=(), following_text=""):
     # 句式标题与长段落按正文处理，机构名采用短命名片段。
     if entity_type == "PERSON" and any(token.pos_ in ("VERB", "AUX") and token.text.islower() for token in tokens):
+        return False
+    if entity_type in {"ORGANIZATION", "LOCATION"} and tokens and not any(token.pos_ == "PROPN" for token in tokens) and not text.isupper():
         return False
     if entity_type == "ORGANIZATION" and text.split()[-1].lower().rstrip(".") not in ORG_SUFFIXES and re.match(r"\s+(?:campaign|project|course|seminar)\b", following_text, re.I):
         return False
@@ -102,6 +91,7 @@ class ReplacementSession:
         self.lookup = {}
         self.counts = Counter()
         self.used_names = set()
+        self.used_identifiers = set()
         self.realized = {}
         self.applied = {}
         self.original_words = {
@@ -113,7 +103,7 @@ class ReplacementSession:
         def order(item):
             kind, text = item
             bare = person_parts(text)["bare"] if kind == "PERSON" else text
-            full_person = len(bare.split()) > 1 or (CJK.search(bare) and len(bare) > 2)
+            full_person = len(bare.split()) > 1
             return (0 if kind == "PERSON" and full_person else 1 if kind == "PERSON" else 2 if kind == "ORGANIZATION" else 3, -len(bare), text, kind)
 
         ordered = sorted(set(detected), key=order)
@@ -121,8 +111,8 @@ class ReplacementSession:
             self.cluster_for(kind, text)
 
     def alias_key(self, kind, text):
-        if kind in ("PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "IBAN_CODE"):
-            return kind, re.sub(r"\W", "", text).casefold()
+        if kind in FORMATTED_ENTITIES:
+            return kind, "".join(character for character in text if character.isalnum()).casefold()
         return kind, normalize(person_parts(text)["bare"] if kind == "PERSON" else text)
 
     def cluster_for(self, kind, text):
@@ -161,32 +151,28 @@ class ReplacementSession:
             tokens = cluster["canonical"].split()
             if len(tokens) > 1 and tokens[-1].lower().rstrip(".") in ORG_SUFFIXES:
                 aliases.add(" ".join(tokens[:-1]))
-        for alias in aliases - {""}:
+        for alias in sorted(aliases - {""}):
             key = self.alias_key(kind, alias)
             self.aliases[key].add(cluster["index"])
             self.surfaces[key].add(alias)
 
     def alias_mentions(self, text):
         mentions = []
-        for key, indices in self.aliases.items():
+        for key, indices in sorted(self.aliases.items()):
             if key[0] not in ("PERSON", "ORGANIZATION") or len(indices) != 1:
                 continue
             cluster = self.clusters[next(iter(indices))]
-            for alias in self.surfaces[key]:
+            for alias in sorted(self.surfaces[key]):
                 bare = person_parts(alias)["bare"] if key[0] == "PERSON" else alias
                 prefix = r"(?:(?i:Mr\.?|Mrs\.?|Ms\.?|Miss|Dr\.?|Prof\.?)\s+)?" if key[0] == "PERSON" else ""
-                suffix = r"(?:先生|女士|小姐|总|经理|博士|教授)?" if key[0] == "PERSON" and CJK.search(bare) else ""
-                left, right = (r"(?<![A-Za-z0-9])", r"(?![A-Za-z0-9])") if CJK.search(bare) else (r"(?<!\w)", r"(?!\w)")
-                if key[0] == "PERSON" and CJK.search(bare) and len(bare) <= 2 and bare == person_parts(cluster["canonical"])["last"]:
-                    suffix = r"(?:先生|女士|小姐|总|经理|博士|教授)"
-                for match in re.finditer(rf"{left}{prefix}{re.escape(bare)}{suffix}{right}", text):
+                for match in re.finditer(rf"(?<!\w){prefix}{re.escape(bare)}(?!\w)", text):
                     mentions.append({"start": match.start(), "end": match.end(), "entity_type": cluster["entity_type"], "cluster_id": cluster["cluster_id"]})
         return mentions
 
     def fake_for(self, cluster):
-        locale = "zh_CN" if CJK.search(cluster["canonical"]) else "en_US"
+        locale = "en_US"
         fake = Faker(locale)
-        seed_text = f"{self.scope}|{cluster['entity_type']}|{normalize(cluster['canonical'])}"
+        seed_text = f"{RANDOM_SEED}|{self.scope}|{cluster['entity_type']}|{normalize(cluster['canonical'])}"
         fake.seed_instance(int.from_bytes(hashlib.blake2b(seed_text.encode(), digest_size=8).digest(), "big"))
         return fake, locale
 
@@ -197,7 +183,7 @@ class ReplacementSession:
             genders = cluster["genders"] - {"unknown"}
             gender = next(iter(genders)) if len(genders) == 1 else "unknown"
             gender_basis = "honorific" if gender != "unknown" else "unknown"
-            if cluster["entity_type"] == "PERSON" and not genders and locale == "en_US":
+            if cluster["entity_type"] == "PERSON" and not genders:
                 provider = fake.first_name.__self__
                 first_name = normalize(person_parts(cluster["canonical"])["first"])
                 male = first_name in {normalize(name) for name in provider.first_names_male}
@@ -212,7 +198,7 @@ class ReplacementSession:
                     if not names & (self.original_words | self.used_names):
                         self.used_names.update(names)
                         break
-                value = {"first": first, "last": last, "full": last + first if locale == "zh_CN" else f"{first} {last}"}
+                value = {"first": first, "last": last, "full": f"{first} {last}"}
             else:
                 value = {"full": self.make_value(cluster, fake)}
             coarse = generalize(cluster["entity_type"], cluster["canonical"])
@@ -234,27 +220,45 @@ class ReplacementSession:
             return "the area" if self.counts[kind] == 1 else f"the {ordinal} area"
         if kind == "EMAIL_ADDRESS":
             return fake.user_name() + "@example.invalid"
-        if kind in ("PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "IBAN_CODE"):
-            return fake.bothify(re.sub(r"[A-Za-z]", "?", re.sub(r"\d", "#", text)), letters="ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-        return "a community"
+        if kind in FORMATTED_ENTITIES:
+            value = text
+            while self.alias_key(kind, value) == self.alias_key(kind, text) or self.alias_key(kind, value) in self.used_identifiers:
+                value = "".join(
+                    str(fake.random_digit()) if character.isdigit()
+                    else fake.random_letter().upper() if character.isupper()
+                    else fake.random_letter().lower() if character.islower()
+                    else character
+                    for character in text
+                )
+            self.used_identifiers.add(self.alias_key(kind, value))
+            return value
+        if kind == "NRP":
+            return "a community"
+        raise ValueError(f"Unsupported replacement entity: {kind}")
 
     def replacement(self, kind, text):
         cluster = self.cluster_for(kind, text)
         identity = self.identity(cluster)
         value = identity["full"]
-        if kind in ("PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "IBAN_CODE"):
-            characters = iter(re.sub(r"\W", "", value))
-            value = "".join(next(characters) if character.isalnum() else character for character in text)
+        if kind in FORMATTED_ENTITIES:
+            characters = iter(character for character in value if character.isalnum())
+            value = "".join(
+                next(characters).lower() if character.islower()
+                else next(characters).upper() if character.isupper()
+                else next(characters) if character.isdigit()
+                else character
+                for character in text
+            )
         if cluster["entity_type"] == "PERSON":
             parts = person_parts(text)
             original = person_parts(cluster["canonical"])
-            if parts["prefix"] or parts["suffix"]:
-                value = identity["full"] if len(parts["bare"].split()) > 1 and not CJK.search(parts["bare"]) else identity["last"]
+            if parts["prefix"]:
+                value = identity["full"] if len(parts["bare"].split()) > 1 else identity["last"]
             elif normalize(parts["bare"]) != normalize(cluster["canonical"]):
                 value = identity["first"] if normalize(parts["bare"]) == normalize(original["first"]) else identity["last"]
-            elif len(parts["bare"].split()) == 1 and not CJK.search(parts["bare"]):
+            elif len(parts["bare"].split()) == 1:
                 value = identity["last"] if any(person_parts(surface)["prefix"] for surface in cluster["surfaces"]) else identity["first"]
-            value = parts["prefix"] + value + parts["suffix"]
+            value = parts["prefix"] + value
         self.applied[(kind, text)] = {"cluster_id": cluster["cluster_id"], "text": text, "replacement": value, "entity_type": cluster["entity_type"]}
         return value
 
