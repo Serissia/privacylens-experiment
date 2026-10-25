@@ -42,10 +42,13 @@ def main():
 
     commands.add_parser("setup-filter", help="download pinned English GLiNER weights and tokenizer")
 
-    prepare = commands.add_parser("prepare", help="prepare development cases")
+    prepare = commands.add_parser("prepare", help="prepare cases and evaluation labels")
     prepare.add_argument("--source", default="data/main_data.json")
     prepare.add_argument("--output-dir", default="data/pilot")
     prepare.add_argument("--limit", type=int, default=5)
+    prepare.add_argument("--tail", action="store_true", help="select the last N cases in source order")
+    prepare.add_argument("--purpose", default="development/pilot", help="dataset purpose recorded in manifest")
+    prepare.add_argument("--categories", help="case_id to category JSON; omitted or empty disables category preparation")
 
     prompts = commands.add_parser("prompts", help="build paired A0/A1 messages")
     prompts.add_argument("--input", default="data/pilot/inputs.json")
@@ -71,8 +74,9 @@ def main():
     add_evaluation_paths(pipeline)
     add_selection(pipeline)
 
-    stat = commands.add_parser("stat", help="export summary statistics and figures offline")
-    stat.add_argument("--input", nargs="+", required=True, help="one or more summary.json files")
+    stat = commands.add_parser("stat", help="export comparison tables, costs, categories, report and figures offline")
+    stat.add_argument("--input", nargs="+", required=True, help="one or more comment summary.json files with adjacent config and results")
+    stat.add_argument("--categories", help="case_id to category JSON for offline regrouping; empty disables categories")
     stat.add_argument("--output-dir", help="statistics directory (default: artifacts/stats/<timestamp>)")
 
     args = parser.parse_args()

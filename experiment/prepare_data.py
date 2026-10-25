@@ -1,11 +1,17 @@
 """Prepare generation inputs and evaluation labels from PrivacyLens cases."""
 
+from hashlib import sha256
+
 from .common import project_path, read_json, write_json
 
 
 def run(args):
     source_path = project_path(args.source)
-    cases = read_json(source_path)[:args.limit]
+    if args.limit < 1:
+        raise ValueError("limit must be positive")
+    data = read_json(source_path)
+    cases = data[-args.limit:] if args.tail else data[:args.limit]
+    categories = read_json(project_path(args.categories)) if args.categories else {}
 
     inputs = []
     labels = []
@@ -22,6 +28,8 @@ def run(args):
         })
         labels.append({
             "case_id": case["name"],
+            "privacy_category": categories[case["name"]] if args.categories else None,
+            "category_source": args.categories or None,
             "seed": case["seed"],
             "vignette": case["vignette"],
             "sensitive_info_items": trajectory["sensitive_info_items"],
@@ -29,10 +37,12 @@ def run(args):
 
     manifest = {
         "source_path": args.source,
-        "selection": f"first {args.limit} records, preserving original order",
+        "selection": f"{'last' if args.tail else 'first'} {args.limit} records, preserving original order",
         "sample_count": len(cases),
         "case_ids": [case["name"] for case in cases],
-        "purpose": "development/pilot",
+        "purpose": args.purpose,
+        "source_sha256": sha256(source_path.read_bytes()).hexdigest(),
+        "category_source": args.categories or None,
     }
 
     output_dir = project_path(args.output_dir)
@@ -45,4 +55,4 @@ def run(args):
         write_json(output_dir / filename, content)
         print(f"Wrote {args.output_dir}/{filename}")
 
-    print(f"Prepared {len(cases)} development cases.")
+    print(f"Prepared {len(cases)} cases.")

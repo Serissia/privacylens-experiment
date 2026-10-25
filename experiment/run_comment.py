@@ -265,6 +265,9 @@ def run(args, usage_records=None):
     if args.dry_run:
         return run_dir
 
+    write_json(run_dir / "labels.json", [labels[key] for key in sorted({row["case_id"] for row in sources})])
+
+    (run_dir / "results.jsonl").touch()
     results = []
     with tqdm(total=len(plans), desc="Comment", unit="request", dynamic_ncols=True) as progress:
         for plan in plans:

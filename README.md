@@ -19,7 +19,8 @@ experiment/
   pii_rules.py             一致伪名、明确姓名别名与概念泛化
   reproducibility.py       固定随机种子与确定性配置
   run_comment.py           独立评价隐私与任务完成度
-  run_stat.py              汇总评价指标并生成图表
+  run_stat.py              导出比较表、报告与图表
+  statistics_data.py       读取批次来源并计算成本与类别统计
   run_pipeline.py          串联生成、过滤、评分和统计
   common.py                文件操作与 API 请求
 prompts/                   任务模板、裁判标准、工具说明及版本归档
@@ -61,7 +62,27 @@ REF_MODEL=qwen3.5-flash
 .\.venv\Scripts\python.exe .\run.py prompts
 ```
 
-准备阶段默认读取 `data/main_data.json` 的前 5 条，将模型可见字段写入 `data/pilot/inputs.json`，评价数据写入 `labels.json`，选择信息写入 `manifest.json`。可用 `--source`、`--output-dir` 和 `--limit` 指定数据来源、产物目录与开发案例数量。
+准备阶段默认读取 `data/main_data.json` 的前 5 条，将模型可见字段写入 `data/pilot/inputs.json`，评价数据写入 `labels.json`，选择信息写入 `manifest.json`。重复使用相同输出目录会覆盖这三个文件。
+
+| `prepare` 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `--source` | `data/main_data.json` | PrivacyLens 格式的数据源 JSON 文件。 |
+| `--output-dir` | `data/pilot` | 保存 `inputs.json`、`labels.json` 和 `manifest.json` 的目录。 |
+| `--limit` | `5` | 选取案例数，必须大于零；源数据不足时取全部可用案例。 |
+| `--tail` | 不启用 | 启用后取末尾 `--limit` 条；默认取前面的案例。两种方式均保持源文件顺序。 |
+| `--purpose` | `development/pilot` | 写入 manifest 的用途说明，例如 `final-test`。它仅记录用途，不执行开发／测试隔离检查。 |
+| `--categories` | 不指定 | 类别映射 JSON 路径：键为 `case_id`，值为类别名称；必须覆盖本次所有选定案例。不指定或传空值时不设置类别，也不进行类别分析。 |
+
+`--categories` 文件结构示例：
+
+```json
+{
+  "main1": "a pending legal case",
+  "main2": "marital status",
+}
+```
+
+该示例只覆盖两个案例。实际文件需包含本次选择的全部 ID。类别写入评价标签中的 `privacy_category`，生成输入保持独立。
 
 提示阶段默认读取 `data/pilot/inputs.json`，生成 `artifacts/prompts/pilot_v2.jsonl`；支持 `--input` 与 `--output` 指定路径。A0 为 `a0_v1`，A1 为 `a1_v2`，两者共用同一份案例正文，A1 追加情境隐私要求。模板说明见 [prompts/README.md](prompts/README.md)。
 
@@ -82,7 +103,7 @@ flowchart LR
 | `input` | 提示 JSONL → A0/A1 最终动作 | 调用 BASE_MODEL |
 | `filter` | 生成结果中的 A0 → 配对 A2 | 本地 Presidio |
 | `comment` | 一个或多个 A0/A1/A2 结果文件 → 裁判记录与 summary.json | 每条有效输出调用 REF_MODEL 两次 |
-| `stat` | 一个或多个 summary.json → JSON 统计和 PNG 图 | 本地计算 |
+| `stat` | summary.json 及其来源记录 → 比较表、分类统计、报告与 PNG 图 | 本地计算 |
 | `pipeline` | 提示 JSONL → A0/A1/A2、联合评价与图表 | 顺序执行 `input → filter → comment → stat` |
 
 完成上面的样本准备后，在项目根目录依次执行。每一步将 `<..._ID>` 替换为相应命令打印的实际目录名：
@@ -142,25 +163,27 @@ Faker 英文伪名与编号以源 A0 动作为作用域，跨字段共享映射�
 
 处理帖子正文、邮件主题/正文和消息正文，保留原收件人及工具参数。每条 A0 对应一条 A2，过滤配置、来源关系、前后文本、实体簇与映射表保存在 `artifacts/filters/<run_id>/`。PII 检出与情境隐私泄露分别通过命中记录和独立评价衡量；伪名及泛化造成的任务信息变化同时计入 helpfulness 评价。
 
-## 离线统计与图表
+## 统一统计与报告
 
-对本版 `comment` 产出的 `summary.json` 执行：
+`pipeline` 最后自动运行 `stat`。已有评价可独立离线汇总：
 
 ```powershell
-.\.venv\Scripts\python.exe .\run.py stat --input "artifacts/comments/<COMMENT_RUN_ID>/summary.json"
+.\.venv\Scripts\python.exe run.py stat --input "artifacts/comments/<COMMENT_ID>/summary.json"
 ```
 
-支持多个 `--input` 路径和 `--output-dir`。默认写入 `artifacts/stats/<时间戳>/`，包含 `config.json` 来源配置、`statistics.json` 统计数据和以下三张 PNG 图：
+支持多份 `--input` 和 `--output-dir`，每份评价独立展示。统计读取相邻配置、逐条结果及所选来源，输出 `report.md`、`report.json`、`comparison.csv`、绘图数据和三张 PNG；启用类别分析时另输出 `categories.csv`。主表比较泄露、任务完成、拒绝、平均时间和 token；随后展示覆盖、版本、裁判开销及已启用的类别分析。
 
-| 图片 | 内容与分母 |
-| --- | --- |
-| `privacy.png` | 仅展示敏感样本。依次为案例泄露率（泄露案例数 / 有效隐私评价的敏感案例数）、调整后泄露率（任务完成度 >=2 且隐私与任务评价均有效的敏感案例中的泄露比例）、事实项泄露率（泄露敏感事实项数 / 有效评价的敏感事实项数）。 |
-| `helpfulness.png` | 分别展示敏感与非敏感样本。依次为任务完成度均分（0–3 分）、任务完成率（分数 >=2 的输出数 / 有效任务评分数）、拒绝率（拒绝输出数 / 有效生成输出数）。 |
-| `coverage.png` | 分别展示敏感与非敏感样本。前三项为有效生成数、有效隐私评价数、有效任务评价数各自占选定输出数的比例；第四项为已有效评价的敏感事实项数 / 计划敏感事实项总数，用于查看生成失败、评价失败或缺失造成的覆盖缺口。 |
+最终测试完成后，可补充 case_id 到类别名称的 JSON 文件，再对已有评价离线生成分类统计：
 
-各图保留 A0/A1/A2 条件、生成提示版本、被测模型、过滤版本与样本组。统计按过滤版本分组；A0/A1 及旧产物缺失的过滤版本统一为 JSON `null`，图中显示 `filter=null`。比例标注同时显示分子和分母，均分标注有效评分数量；标签中的 `n` 是选定输出条数，同案例多次运行属于重复观测。多份输入以 S1、S2 等编号独立展示，来源路径和裁判配置见 `config.json`。
+```powershell
+.\.venv\Scripts\python.exe -X utf8 run.py stat --input "artifacts/comments/<COMMENT_ID>/summary.json" --categories data/final_test/categories.json
+```
 
-标签中的 `sensitive_info_items` 非空表示敏感样本，空清单表示非敏感样本。汇总同时统计泄露案例数、泄露事实项数、已评价事实项数与计划事实项总数；隐私泄露率使用敏感样本的有效评价作为分母，非敏感样本单独展示任务完成与拒绝指标。零分母记录为 `null`，图中显示 `N/A`。指标定义见 [评价协议](docs/evaluation.md)。
+分类文件须覆盖本批所有案例。该命令直接使用已有评价结果，不调用模型；新报告保存类别来源与映射快照。未传 `stat --categories` 时使用评价快照中的显式类别；`--categories=` 可强制关闭类别分析。原始 `seed.data_type` 仅保留为来源信息。
+
+A2 部署开销包含对应 A0 生成和本地过滤；本批实际 API 开销按请求去重，裁判另列。保护 recall 从敏感事实判断计算；缺少逐项允许事实评价的 precision、缺少合理性标注的 false refusal 明确显示未评价。
+
+新评价保存所用标签快照。详细输入、输出、分母和时间范围见 [统计说明](docs/reporting.md)。
 
 ## 参数与产物
 
@@ -174,7 +197,7 @@ Faker 英文伪名与编号以源 A0 动作为作用域，跨字段共享映射�
 - `artifacts/runs/<run_id>/`：生成配置、原始响应和候选动作。
 - `artifacts/filters/<run_id>/`：本地 A2 配置、来源配对、过滤动作和字段审计记录。
 - `artifacts/comments/<run_id>/`：裁判配置、原始响应、逐项评分与 `summary.json`。
-- `artifacts/stats/<时间戳>/`：JSON 统计数据、来源配置与三张 PNG 图。
+- `artifacts/stats/<时间戳>/`：方法比较、分类别 CSV、报告、JSON 统计、来源配置与三张 PNG 图。
 
 ## 来源与许可
 
