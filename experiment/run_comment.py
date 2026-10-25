@@ -3,6 +3,8 @@
 import json
 from collections import defaultdict
 
+from tqdm import tqdm
+
 from .common import (
     COMMENT_PARAMETERS,
     ROOT,
@@ -264,21 +266,23 @@ def run(args, usage_records=None):
         return run_dir
 
     results = []
-    for plan in plans:
-        result = call_json(plan, config, run_dir, settings["api_key"])
-        if usage_records is not None:
-            usage_records.append(result)
-        result.update(leak_info=None, secret_judgment=None, helpfulness_score=None)
-        if result["status"] == "ok":
-            try:
-                parse_assessment(result, plan)
-            except (KeyError, IndexError, TypeError) as error:
-                set_parse_error(result, error)
-        results.append(result)
-        append_jsonl(run_dir / "results.jsonl", result)
-        print(f"{result['case_id']}/{result['condition']}/{result['kind']}: {result['status']}")
-        if result["status"] != "ok":
-            break
+    with tqdm(total=len(plans), desc="Comment", unit="request", dynamic_ncols=True) as progress:
+        for plan in plans:
+            result = call_json(plan, config, run_dir, settings["api_key"])
+            if usage_records is not None:
+                usage_records.append(result)
+            result.update(leak_info=None, secret_judgment=None, helpfulness_score=None)
+            if result["status"] == "ok":
+                try:
+                    parse_assessment(result, plan)
+                except (KeyError, IndexError, TypeError) as error:
+                    set_parse_error(result, error)
+            results.append(result)
+            append_jsonl(run_dir / "results.jsonl", result)
+            progress.set_postfix(case=result["case_id"], condition=result["condition"], kind=result["kind"], status=result["status"], refresh=False)
+            progress.update()
+            if result["status"] != "ok":
+                break
 
     write_json(run_dir / "summary.json", summarize(sources, results, len(plans), labels))
     if any(result["status"] != "ok" for result in results):

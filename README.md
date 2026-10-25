@@ -20,6 +20,7 @@ experiment/
   reproducibility.py       固定随机种子与确定性配置
   run_comment.py           独立评价隐私与任务完成度
   run_stat.py              汇总评价指标并生成图表
+  run_pipeline.py          串联生成、过滤、评分和统计
   common.py                文件操作与 API 请求
 prompts/                   任务模板、裁判标准、工具说明及版本归档
 docs/                      各类文档
@@ -82,7 +83,7 @@ flowchart LR
 | `filter` | 生成结果中的 A0 → 配对 A2 | 本地 Presidio |
 | `comment` | 一个或多个 A0/A1/A2 结果文件 → 裁判记录与 summary.json | 每条有效输出调用 REF_MODEL 两次 |
 | `stat` | 一个或多个 summary.json → JSON 统计和 PNG 图 | 本地计算 |
-| `pipeline` | 提示 JSONL → A0/A1 动作及其评价 | `input → comment` 的快捷入口 |
+| `pipeline` | 提示 JSONL → A0/A1/A2、联合评价与图表 | 顺序执行 `input → filter → comment → stat` |
 
 完成上面的样本准备后，在项目根目录依次执行。每一步将 `<..._ID>` 替换为相应命令打印的实际目录名：
 
@@ -103,23 +104,18 @@ $commentSummary = "artifacts/comments/<COMMENT_RUN_ID>/summary.json"
 .\.venv\Scripts\python.exe .\run.py stat --input $commentSummary
 ```
 
-A0/A1 的快捷运行命令为：
+一条命令运行完整三组实验。先查看四阶段计划，再执行真实运行：
 
 ```powershell
+.\.venv\Scripts\python.exe .\run.py pipeline --all --dry-run
 .\.venv\Scripts\python.exe .\run.py pipeline --all
 ```
 
-已有 pipeline 结果时，复用其生成文件执行 `filter`，再单独评价 A2：
+`pipeline` 将同一次生成的 A0 交给过滤阶段，再联合评价 A0/A1/A2，最后使用该次 `summary.json` 统计绘图。`--input` 指向准备好的提示 JSONL；`--all` 选择其中的全部案例。`--context` 同时传给 filter 和 comment，`--labels` 用于 comment；默认均使用 `data/pilot/` 中的对应文件。
 
-```powershell
-$inputResults = "artifacts/runs/<RUN_ID>/results.jsonl"
-.\.venv\Scripts\python.exe .\run.py filter --input $inputResults --all
-$filterResults = "artifacts/filters/<FILTER_RUN_ID>/results.jsonl"
-.\.venv\Scripts\python.exe .\run.py comment --input $filterResults --all
-.\.venv\Scripts\python.exe .\run.py stat --input "artifacts/comments/<A0_A1_COMMENT_ID>/summary.json" "artifacts/comments/<A2_COMMENT_ID>/summary.json"
-```
+各阶段产物沿用独立命令的目录，`artifacts/pipelines/<时间戳>/config.json` 记录计划预算和各阶段实际目录。`--output-dir` 可指定统计图表目录。运行中断后，可根据已保存的中间结果使用独立命令继续后续阶段。
 
-此处 `$inputResults` 为 pipeline 产生的 `artifacts/runs/<RUN_ID>/results.jsonl`。`comment` 的 `--context`、`--labels` 默认指向 `data/pilot/inputs.json`、`data/pilot/labels.json`，可指定其他数据集对应的路径。
+`--dry-run` 保存任务请求预览与四阶段依赖、数量和预算计划，位于 `artifacts/previews/input/` 和 `artifacts/previews/pipeline/`。过滤与评分所需的实际动作在生成阶段产生，离线预览到此返回。
 
 | 参数 | 适用命令与含义 |
 | --- | --- |
@@ -130,8 +126,11 @@ $filterResults = "artifacts/filters/<FILTER_RUN_ID>/results.jsonl"
 | `--dry-run` | input/comment/pipeline：使用 .env.example 保存离线计划 |
 | `--context` | filter/comment/pipeline：任务上下文 JSON 数组路径，默认 data/pilot/inputs.json；按 case_id 匹配 |
 | `--labels` | comment/pipeline：评价标签 JSON 数组路径，默认 data/pilot/labels.json |
+| `--output-dir` | pipeline/stat：统计数据和图表的输出目录，默认 artifacts/stats/ 下的新时间戳目录 |
 
-案例选择缺省为第一个案例。每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，三组流程合计 8N 次；A0/A1 的 `pipeline` 合计 6N 次。请求尝试一次，故障记录后停止；无效生成按状态保留，评价额度按有效输出计算。
+案例选择缺省为第一个案例。标准配对输入中，每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，`pipeline` 合计 8N 次。整体预算在生成前核对，过滤与统计为本地操作；条件数量不均或存在重复观测时按实际选定记录计算。请求尝试一次，故障记录后停止；无效生成按状态保留，评价额度按有效输出计算。
+
+生成、过滤和评分分别显示进度条，包含已完成数量、耗时、速率和剩余时间估计，并显示当前案例、条件或评分类型及状态。逐条结果和错误保存在各阶段 JSONL 中；统计结束后打印图表目录。
 
 ## A2 本地 PII 过滤
 
@@ -170,6 +169,8 @@ Faker 英文伪名与编号以源 A0 动作为作用域，跨字段共享映射�
 `input`、`comment` 和 `pipeline` 结束时在控制台按模型打印请求数、输入 token、输出 token 和总 token。优先使用响应返回的模型名称，缺失时使用请求模型名称；pipeline 汇总本次生成与裁判请求，同一模型的用量合并。中途失败时也打印已记录请求的用量；服务未返回用量时显示 `N/A`，部分请求有用量时标注已报告数量与请求总数。
 
 - `artifacts/previews/input/`、`previews/comment/`：离线请求计划。
+- `artifacts/previews/pipeline/`：完整流程的离线阶段与预算计划。
+- `artifacts/pipelines/<时间戳>/`：完整流程计划及各阶段产物目录关联。
 - `artifacts/runs/<run_id>/`：生成配置、原始响应和候选动作。
 - `artifacts/filters/<run_id>/`：本地 A2 配置、来源配对、过滤动作和字段审计记录。
 - `artifacts/comments/<run_id>/`：裁判配置、原始响应、逐项评分与 `summary.json`。

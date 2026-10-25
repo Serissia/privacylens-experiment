@@ -6,6 +6,7 @@ from importlib.metadata import version
 from time import perf_counter
 
 import tldextract
+from tqdm import tqdm
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerRegistry, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.predefined_recognizers import (
@@ -303,9 +304,11 @@ def run(args):
         "generation_request_count": 0,
     }
     write_json(run_dir / "config.json", config)
-    for source in sources:
-        result = pii_filter.derive(source["record"], input_path, source["line"], run_id, contexts[source["case_id"]])
-        append_jsonl(run_dir / "results.jsonl", result)
-        print(f"{result['case_id']}/A2: {result['status']}, changed={result['changed']}, replacements={result['replacement_count']}")
+    with tqdm(total=len(sources), desc="Filter A2", unit="action", dynamic_ncols=True) as progress:
+        for source in sources:
+            result = pii_filter.derive(source["record"], input_path, source["line"], run_id, contexts[source["case_id"]])
+            append_jsonl(run_dir / "results.jsonl", result)
+            progress.set_postfix(case=result["case_id"], status=result["status"], replacements=result["replacement_count"], refresh=False)
+            progress.update()
     print(f"Saved {len(sources)} derived actions to {run_dir.relative_to(ROOT).as_posix()}")
     return run_dir

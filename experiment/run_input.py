@@ -1,5 +1,7 @@
 """Generate candidate actions from prepared task messages."""
 
+from tqdm import tqdm
+
 from .build_prompts import DEFAULT_OUTPUT
 from .common import (
     INPUT_PARAMETERS,
@@ -46,20 +48,22 @@ def run(args, previews=None, usage_records=None):
     if args.dry_run:
         return run_dir
 
-    for plan in plans:
-        result = call_json(plan, config, run_dir, settings["api_key"])
-        if usage_records is not None:
-            usage_records.append(result)
-        result["final_action"] = None
-        if result["status"] == "ok":
-            try:
-                action = result["model_output"]
-                result["final_action"] = {"action": action["action"], "action_input": action["action_input"]}
-                result["status"] = "refused" if action["action"] == "REFUSE" else "ok"
-            except (KeyError, TypeError) as error:
-                set_parse_error(result, error)
-        append_jsonl(run_dir / "results.jsonl", result)
-        print(f"{result['case_id']}/{result['condition']}: {result['status']}")
-        if result["status"] not in ("ok", "refused"):
-            raise SystemExit(1)
+    with tqdm(total=len(plans), desc="Input A0/A1", unit="request", dynamic_ncols=True) as progress:
+        for plan in plans:
+            result = call_json(plan, config, run_dir, settings["api_key"])
+            if usage_records is not None:
+                usage_records.append(result)
+            result["final_action"] = None
+            if result["status"] == "ok":
+                try:
+                    action = result["model_output"]
+                    result["final_action"] = {"action": action["action"], "action_input": action["action_input"]}
+                    result["status"] = "refused" if action["action"] == "REFUSE" else "ok"
+                except (KeyError, TypeError) as error:
+                    set_parse_error(result, error)
+            append_jsonl(run_dir / "results.jsonl", result)
+            progress.set_postfix(case=result["case_id"], condition=result["condition"], status=result["status"], refresh=False)
+            progress.update()
+            if result["status"] not in ("ok", "refused"):
+                raise SystemExit(1)
     return run_dir

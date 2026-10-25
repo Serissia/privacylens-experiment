@@ -3,7 +3,7 @@
 import argparse
 
 from experiment import build_prompts, prepare_data, run_comment, run_input, run_stat
-from experiment.common import check_budget, print_token_usage, project_path, read_json
+from experiment.common import print_token_usage
 
 
 def add_selection(parser, *, model_stage=True):
@@ -21,31 +21,6 @@ def add_evaluation_paths(parser):
     parser.add_argument("--labels", default="data/pilot/labels.json", help="evaluation labels")
 
 
-def run_pipeline(args, usage_records):
-    previews = run_input.select_inputs(args)
-    # 每条生成请求随后对应一次隐私判断和一次任务完成度判断。
-    max_requests = check_budget(3 * len(previews), args.max_requests)
-    contexts, labels = run_comment.load_evaluation_data(args.context, args.labels)
-    tool_specs = read_json(project_path("prompts/final_action_specs.json"))
-    for case_id in dict.fromkeys(preview["case_id"] for preview in previews):
-        labels[case_id]["sensitive_info_items"]
-        tool_specs[contexts[case_id]["final_action"]]
-    input_args = argparse.Namespace(**{**vars(args), "max_requests": len(previews)})
-    run_dir = run_input.run(input_args, previews, usage_records)
-    if args.dry_run:
-        print(f"Pipeline plan: {len(previews)} input requests + up to {2 * len(previews)} judge requests")
-        return
-    comment_args = argparse.Namespace(**{
-        **vars(args),
-        "input": [str(run_dir / "results.jsonl")],
-        "all": True,
-        "case_id": None,
-        "limit": None,
-        "max_requests": max_requests - len(previews),
-    })
-    run_comment.run(comment_args, usage_records)
-
-
 def run_models(args):
     usage_records = []
     try:
@@ -54,7 +29,8 @@ def run_models(args):
         elif args.command == "comment":
             run_comment.run(args, usage_records=usage_records)
         else:
-            run_pipeline(args, usage_records)
+            from experiment import run_pipeline
+            run_pipeline.run(args, usage_records)
     finally:
         # 汇总本次调用内已记录的响应用量，包括中断前的请求。
         print_token_usage(usage_records)
@@ -89,8 +65,9 @@ def main():
     add_evaluation_paths(comment)
     add_selection(comment)
 
-    pipeline = commands.add_parser("pipeline", help="generate and assess A0/A1 actions (input + comment)")
+    pipeline = commands.add_parser("pipeline", help="run input -> filter -> comment -> stat for A0/A1/A2")
     pipeline.add_argument("--input", default=run_input.DEFAULT_INPUT, help="prepared messages JSONL")
+    pipeline.add_argument("--output-dir", help="statistics directory (default: artifacts/stats/<timestamp>)")
     add_evaluation_paths(pipeline)
     add_selection(pipeline)
 

@@ -30,11 +30,11 @@
 - 优先完成小规模、低依赖、可检查的闭环：读取案例、构造提示、API 生成、过滤、记录、人工评价和统计。不要提前搭建完整代理框架。
 - 每次开发完毕后将本次更改内容与测试结果保存至 `./LOG.md`，写明实现了什么功能、为什么要实现，不要写具体的实现细节或代码片段。
 - 使用 Windows 原生 PowerShell 和项目内 `.venv`。本地过滤模型按固定实验设计保存到 `models/`，使用 CPU 推理。不默认引入 vLLM、CUDA、额外本地模型、toolemu、procoder 或官方完整 Python 工程依赖。
-- 根目录 `run.py` 统一调度，准备、提示构造、任务输入、过滤、结果评判和统计代码放在 `experiment/`；`run_input.py` 与 `run_comment.py` 分别负责生成和评价，`run_filter.py` 派生 A2，`run_stat.py` 负责汇总表与图表，共用 `common.py` 的文件与 API 操作。
+- 根目录 `run.py` 统一调度，准备、提示构造、任务输入、过滤、结果评判和统计代码放在 `experiment/`；`run_input.py` 与 `run_comment.py` 分别负责生成和评价，`run_filter.py` 派生 A2，`run_stat.py` 负责汇总表与图表，`run_pipeline.py` 顺序串联四个阶段，共用 `common.py` 的文件与 API 操作。
 - API 接入集中管理模型名称、服务地址、采样参数、输出长度限制、超时、重试及思考模式等服务特有配置；固定并记录实际生效值，避免不同条件混用。重试应有限且可追踪。
 - `.env.example` 字段为 `DASHSCOPE_API_KEY`、`QWEN_BASE_URL`、`BASE_MODEL`、`REF_MODEL`；示例仅说明配置字段，不证明端点或模型可用性已验证。不要猜测实际服务地址或读取、展示真实 `.env` 的密钥。
 - `requirements.txt` 与 `requirements-lock.txt` 均固定 `openai==0.28.0`、`python-dotenv==1.0.0`。修改依赖前检查声明版本、环境实际版本和接口支持，不假定旧 SDK 支持新的调用写法，不顺手整体升级环境；必要变更应最小化，并保持依赖清单与锁定记录一致。
-- 只记录实际存在且验证过的运行入口，并说明工作目录及前提，区分离线模拟验证与真实服务调用。数据与请求通过 `run.py prepare/prompts` 准备，三组实验按 `input → filter → comment → stat` 执行，A0/A1 的生成与评价可通过 `pipeline` 串联。
+- 只记录实际存在且验证过的运行入口，并说明工作目录及前提，区分离线模拟验证与真实服务调用。数据与请求通过 `run.py prepare/prompts` 准备，`pipeline` 串联三组实验的 `input → filter → comment → stat`，整体 API 预算在生成前核对；标准配对输入每个案例需要 8 次请求。生成、过滤和评分使用进度条显示完成情况，逐条记录保存为 JSONL。
 
 ## Benchmark 与输入隔离
 
