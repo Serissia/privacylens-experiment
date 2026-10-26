@@ -257,25 +257,15 @@ def select_inputs(args):
     return select_records(sources, args.case_id, args.all, args.limit)
 
 
-def run(args):
-    sources = select_inputs(args)
-    contexts = {row["case_id"]: {key: row[key] for key in ("user_name", "user_instruction")} for row in read_json(project_path(args.context))}
-    for source in sources:
-        contexts[source["case_id"]]
-    pii_filter = PiiFilter()
-    started_at = datetime.now(timezone.utc)
-    run_id = started_at.strftime("%Y%m%dT%H%M%S_%fZ")
-    run_dir = ROOT / "artifacts/filters" / run_id
-    run_dir.mkdir(parents=True)
-    input_path = project_path(args.input).resolve().as_posix()
-    config = {
+def build_config(pii_filter, sources, input_path, context_path, selection, run_id, started_at):
+    return {
         "run_id": run_id,
         "stage": "filter",
         "started_at": started_at.isoformat(),
         "mode": "local_derivation",
         "input_path": input_path,
-        "context_path": project_path(args.context).resolve().as_posix(),
-        "selection": {"case_ids": args.case_id, "all": args.all, "limit": args.limit},
+        "context_path": context_path,
+        "selection": selection,
         "selected_sources": [{"case_id": source["case_id"], "line": source["line"]} for source in sources],
         "source_count": len(sources),
         "filter_version": FILTER_VERSION,
@@ -303,6 +293,21 @@ def run(args):
         "outbound_fields": OUTBOUND_FIELDS,
         "generation_request_count": 0,
     }
+
+
+def run(args):
+    sources = select_inputs(args)
+    contexts = {row["case_id"]: {key: row[key] for key in ("user_name", "user_instruction")} for row in read_json(project_path(args.context))}
+    for source in sources:
+        contexts[source["case_id"]]
+    pii_filter = PiiFilter()
+    started_at = datetime.now(timezone.utc)
+    run_id = started_at.strftime("%Y%m%dT%H%M%S_%fZ")
+    run_dir = ROOT / "artifacts/filters" / run_id
+    run_dir.mkdir(parents=True)
+    input_path = project_path(args.input).resolve().as_posix()
+    config = build_config(pii_filter, sources, input_path, project_path(args.context).resolve().as_posix(),
+                          {"case_ids": args.case_id, "all": args.all, "limit": args.limit}, run_id, started_at)
     write_json(run_dir / "config.json", config)
     with tqdm(total=len(sources), desc="Filter A2", unit="action", dynamic_ncols=True) as progress:
         for source in sources:

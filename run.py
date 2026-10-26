@@ -12,13 +12,13 @@ def add_selection(parser, *, model_stage=True):
     selection.add_argument("--all", action="store_true", help="select every case in the input")
     parser.add_argument("--limit", type=int, help="select first N distinct cases; cap --case-id/--all selection when combined")
     if model_stage:
-        parser.add_argument("--max-requests", type=int, help="request attempt limit (default: selected request plan size)")
-        parser.add_argument("--dry-run", action="store_true", help="save a plan using .env.example")
+        parser.add_argument("--max-requests", type=int, help="request attempt limit; cumulative for pipeline resume (default: plan size)")
+        parser.add_argument("--dry-run", action="store_true", help="save a plan using .env.example; with --resume, inspect saved progress")
 
 
-def add_evaluation_paths(parser):
-    parser.add_argument("--context", default="data/pilot/inputs.json", help="generation task contexts")
-    parser.add_argument("--labels", default="data/pilot/labels.json", help="evaluation labels")
+def add_evaluation_paths(parser, *, defaults=True):
+    parser.add_argument("--context", default="data/pilot/inputs.json" if defaults else None, help="generation task contexts")
+    parser.add_argument("--labels", default="data/pilot/labels.json" if defaults else None, help="evaluation labels")
 
 
 def run_models(args):
@@ -69,9 +69,10 @@ def main():
     add_selection(comment)
 
     pipeline = commands.add_parser("pipeline", help="run input -> filter -> comment -> stat for A0/A1/A2")
-    pipeline.add_argument("--input", default=run_input.DEFAULT_INPUT, help="prepared messages JSONL")
+    pipeline.add_argument("--input", help="prepared messages JSONL")
     pipeline.add_argument("--output-dir", help="statistics directory (default: artifacts/stats/<timestamp>)")
-    add_evaluation_paths(pipeline)
+    pipeline.add_argument("--resume", help="resume an existing live pipeline directory")
+    add_evaluation_paths(pipeline, defaults=False)
     add_selection(pipeline)
 
     stat = commands.add_parser("stat", help="export comparison tables, costs, categories, report and figures offline")
@@ -80,6 +81,10 @@ def main():
     stat.add_argument("--output-dir", help="statistics directory (default: artifacts/stats/<timestamp>)")
 
     args = parser.parse_args()
+    if args.command == "pipeline" and args.resume:
+        if args.all or any(getattr(args, name) is not None for name in
+                           ("input", "context", "labels", "case_id", "limit", "output_dir")):
+            parser.error("--resume uses the saved selection and paths; only --max-requests and --dry-run may accompany it")
     if args.command == "prepare":
         prepare_data.run(args)
     elif args.command == "prompts":

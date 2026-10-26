@@ -144,6 +144,16 @@ def render_report(report):
         for cost in batch["actual_costs"]["by_role_model"]:
             lines.append(f"| {cost['role']} | {cost['model']} | {cost['request_count']} | {display(cost['total_tokens'])} | "
                          f"{cost['usage_reported_counts']['total_tokens']}/{cost['request_count']} | {display(cost['latency']['sum_seconds'])} |")
+    for batch in report["batches"]:
+        progress = batch.get("pipeline_progress")
+        if progress:
+            lines.extend(["", f"## {batch['id']} 原计划完成情况", "",
+                          "| 阶段 | 计划任务 | 已成功 | 失败待补 | 未执行 |",
+                          "| --- | ---: | ---: | ---: | ---: |"])
+            for stage, counts in progress["planned_tasks"].items():
+                lines.append(f"| {stage} | {counts['planned']} | {counts['successful']} | {counts['failed_pending']} | {counts['not_started']} |")
+            lines.extend(["", f"累计 API 尝试：{progress['api_attempts']} / {progress['max_requests']}；尝试状态：{progress['api_attempt_status_counts']}。", "",
+                          "未保存最终结果的 interrupted_unknown 尝试已计入预算，用量未知。以上为原计划任务数；失败后的成功补跑仍属于同一任务。", ""])
     lines.extend(["", "详细计数、标签快照、版本与费用记录见 report.json；comparison.csv 可用于后续制表；启用类别分析时另有 categories.csv。", ""])
     return "\n".join(lines)
 

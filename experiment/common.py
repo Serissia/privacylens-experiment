@@ -149,7 +149,7 @@ def call_json(planned_request, config, run_dir, api_key):
     metadata = {
         "run_id": config["run_id"],
         **planned_request["metadata"],
-        "attempt": 1,
+        "attempt": planned_request.get("attempt", 1),
         "started_at": datetime.now(timezone.utc).isoformat(),
         "requested_model": payload["model"],
         "generation_parameters": {key: value for key, value in payload.items() if key not in ("model", "messages")},

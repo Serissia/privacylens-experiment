@@ -137,6 +137,16 @@ def load_batch(path, batch_id, categories_path=None):
         for row in config["selected_sources"]
     }
     judges = load_judges([summary_path.parent / "results.jsonl"])
+    pipeline_progress = None
+    pipeline_attempts = None
+    if config.get("pipeline_path"):
+        from .pipeline_state import read_attempts
+        pipeline_directory = project_path(config["pipeline_path"])
+        pipeline_attempts = read_attempts(pipeline_directory)
+        pipeline_progress = read_json(pipeline_directory / "progress.json")
+        pipeline_progress.pop("stat_complete", None)
+        judges = [{**row, "source_path": project_path(row["source_path"]).resolve().as_posix()}
+                  for row in pipeline_attempts if row["pipeline_stage"] == "comment"]
     assert all(source_key(row) in sources for row in judges)
     label_path = summary_path.parent / "labels.json"
     if not label_path.exists():
@@ -184,7 +194,10 @@ def load_batch(path, batch_id, categories_path=None):
         if row["condition"] == "A2":
             origin = row["source_a0"]
             api_rows.append(read_jsonl(project_path(origin["path"]))[origin["line"] - 1])
+    if pipeline_attempts is not None:
+        api_rows = pipeline_attempts
     return {
+        "pipeline_progress": pipeline_progress,
         "id": batch_id, "summary_path": summary_path.as_posix(),
         "summary": summary, "deployment": deployments,
         "categories": categories, "actual_costs": actual_costs(api_rows),

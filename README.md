@@ -138,24 +138,40 @@ $commentSummary = "artifacts/comments/<COMMENT_RUN_ID>/summary.json"
 
 `pipeline` 将同一次生成的 A0 交给过滤阶段，再联合评价 A0/A1/A2，最后使用该次 `summary.json` 统计绘图。`--input` 指向准备好的提示 JSONL；`--all` 选择其中的全部案例。`--context` 同时传给 filter 和 comment，`--labels` 用于 comment；默认均使用 `data/pilot/` 中的对应文件。
 
-各阶段产物沿用独立命令的目录，`artifacts/pipelines/<时间戳>/config.json` 记录计划预算和各阶段实际目录。`--output-dir` 可指定统计图表目录。运行中断后，可根据已保存的中间结果使用独立命令继续后续阶段。
+各阶段产物沿用独立命令的目录，`artifacts/pipelines/<时间戳>/config.json` 在调用前记录原计划、累计预算和全部阶段目录。`--output-dir` 可指定统计图表目录。
 
-`--dry-run` 保存任务请求预览与四阶段依赖、数量和预算计划，位于 `artifacts/previews/input/` 和 `artifacts/previews/pipeline/`。过滤与评分所需的实际动作在生成阶段产生，离线预览到此返回。
+运行中断后，使用控制台打印的 pipeline 目录续跑：
+
+```powershell
+# 查看已成功、失败待补、未执行的任务，以及最低累计预算
+.\.venv\Scripts\python.exe run.py pipeline --resume "artifacts/pipelines/<PIPELINE_ID>" --dry-run
+
+# 沿用原计划及剩余预算继续
+.\.venv\Scripts\python.exe run.py pipeline --resume "artifacts/pipelines/<PIPELINE_ID>"
+
+# 原计划为 800 次，发生一次失败时，将累计上限增加到 801
+.\.venv\Scripts\python.exe run.py pipeline --resume "artifacts/pipelines/<PIPELINE_ID>" --max-requests 801
+```
+
+`--resume` 仅可搭配 `--max-requests` 和 `--dry-run`。恢复沿用原案例、输入顺序、路径和统计目录；成功生成、已完成的 A2、已成功的单项裁判评分分别跳过。失败或未执行的任务继续执行，每次失败仍立即停止。已成功但泄露或 helpfulness 较低的结果同样保留。全部评分完成后重新生成该运行的统计报告；统计阶段中断时，恢复仅重新汇总绘图。
+
+`--max-requests` 表示新的累计上限，可按错误提示提高。若请求已被服务端处理、客户端却未保存最终记录，恢复时会重新请求，该次标为 `interrupted_unknown`，费用可能已发生，用量记为未知。同一 pipeline 同时只允许一个进程运行。
 
 | 参数 | 适用命令与含义 |
 | --- | --- |
 | `--case-id` | input/filter/comment/pipeline：选择一个或多个案例 |
 | `--all` | input/filter/comment/pipeline：选择全部案例 |
 | `--limit` | input/filter/comment/pipeline：单独使用时按输入顺序选择前 N 个不同案例；与 `--case-id` 或 `--all` 同用时限制其案例数。保留所选案例的全部条件及重复观测 |
-| `--max-requests` | input/comment/pipeline：请求尝试上限，缺省按实际计划计算 |
-| `--dry-run` | input/comment/pipeline：使用 .env.example 保存离线计划 |
+| `--max-requests` | input/comment/pipeline：请求尝试上限，缺省按实际计划计算；pipeline 恢复时为包含历史尝试的累计上限 |
+| `--dry-run` | input/comment/pipeline：使用 .env.example 保存离线计划；搭配 pipeline --resume 时查看原运行进度与预算 |
+| `--resume` | pipeline：从指定真实 pipeline 目录继续原计划，仅可搭配 --max-requests 和 --dry-run |
 | `--context` | filter/comment/pipeline：任务上下文 JSON 数组路径，默认 data/pilot/inputs.json；按 case_id 匹配 |
 | `--labels` | comment/pipeline：评价标签 JSON 数组路径，默认 data/pilot/labels.json |
 | `--output-dir` | pipeline/stat：统计数据和图表的输出目录，默认 artifacts/stats/ 下的新时间戳目录 |
 
-未指定 `--case-id`、`--all` 或 `--limit` 时选择第一个案例。单独使用 `--limit 5` 选择前五个不同案例。标准配对输入中，每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，`pipeline` 合计 8N 次。整体预算在生成前核对，过滤与统计为本地操作；条件数量不均或存在重复观测时按实际选定记录计算。请求尝试一次，故障记录后停止；无效生成按状态保留，评价额度按有效输出计算。
+未指定 `--case-id`、`--all` 或 `--limit` 时选择第一个案例。单独使用 `--limit 5` 选择前五个不同案例。标准配对输入中，每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，`pipeline` 合计 8N 次。整体预算在生成前核对，过滤与统计为本地操作；条件数量不均或存在重复观测时按实际选定记录计算。单次执行遇到故障后保存记录并停止；pipeline 恢复时补齐失败任务，完整评价数量以原计划为准。
 
-生成、过滤和评分分别显示进度条，包含已完成数量、耗时、速率和剩余时间估计，并显示当前案例、条件或评分类型及状态。逐条结果和错误保存在各阶段 JSONL 中；统计结束后打印图表目录。
+生成、过滤和评分分别显示进度条，包含已完成数量、耗时、速率和剩余时间估计。pipeline 的逐次尝试保存在 `artifacts/pipelines/<PIPELINE_ID>/attempts/`，每次重试增加尝试编号；`progress.json` 列出原计划各阶段的成功、失败待补与未执行数。各阶段完成后按原顺序生成只含成功结果的 `results.jsonl`，使 A0/A2 来源行号稳定；API 原始响应保存在阶段目录的 `raw_responses.jsonl`。独立 input/comment 命令逐条将结果写入阶段 JSONL。统计结束后打印图表目录。
 
 ## A2 本地 PII 过滤
 
@@ -197,7 +213,7 @@ A2 部署开销包含对应 A0 生成和本地过滤；本批实际 API 开销�
 
 - `artifacts/previews/input/`、`previews/comment/`：离线请求计划。
 - `artifacts/previews/pipeline/`：完整流程的离线阶段与预算计划。
-- `artifacts/pipelines/<时间戳>/`：完整流程计划及各阶段产物目录关联。
+- `artifacts/pipelines/<时间戳>/`：原计划、数据快照、累计进度、逐次尝试记录及各阶段产物目录关联；恢复和统计需保留整个目录。
 - `artifacts/runs/<run_id>/`：生成配置、原始响应和候选动作。
 - `artifacts/filters/<run_id>/`：本地 A2 配置、来源配对、过滤动作和字段审计记录。
 - `artifacts/comments/<run_id>/`：裁判配置、原始响应、逐项评分与 `summary.json`。

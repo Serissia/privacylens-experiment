@@ -24,11 +24,8 @@ def select_inputs(args):
     return select_records(read_jsonl(project_path(args.input)), args.case_id, args.all, args.limit)
 
 
-def run(args, previews=None, usage_records=None):
-    previews = select_inputs(args) if previews is None else previews
-    max_requests = check_budget(len(previews), args.max_requests)
-    settings = load_settings(args.dry_run)
-    plans = [
+def build_plans(previews, settings):
+    return [
         {
             "metadata": {
                 "case_id": preview["case_id"],
@@ -41,6 +38,24 @@ def run(args, previews=None, usage_records=None):
         }
         for preview in previews
     ]
+
+
+def parse_action(result):
+    result["final_action"] = None
+    if result["status"] == "ok":
+        try:
+            action = result["model_output"]
+            result["final_action"] = {"action": action["action"], "action_input": action["action_input"]}
+            result["status"] = "refused" if action["action"] == "REFUSE" else "ok"
+        except (KeyError, TypeError) as error:
+            set_parse_error(result, error)
+
+
+def run(args, previews=None, usage_records=None):
+    previews = select_inputs(args) if previews is None else previews
+    max_requests = check_budget(len(previews), args.max_requests)
+    settings = load_settings(args.dry_run)
+    plans = build_plans(previews, settings)
     run_dir, config = start_run(
         "input", plans, settings, max_requests, args.dry_run,
         {"input_path": project_path(args.input).as_posix()},
@@ -53,14 +68,7 @@ def run(args, previews=None, usage_records=None):
             result = call_json(plan, config, run_dir, settings["api_key"])
             if usage_records is not None:
                 usage_records.append(result)
-            result["final_action"] = None
-            if result["status"] == "ok":
-                try:
-                    action = result["model_output"]
-                    result["final_action"] = {"action": action["action"], "action_input": action["action_input"]}
-                    result["status"] = "refused" if action["action"] == "REFUSE" else "ok"
-                except (KeyError, TypeError) as error:
-                    set_parse_error(result, error)
+            parse_action(result)
             append_jsonl(run_dir / "results.jsonl", result)
             progress.set_postfix(case=result["case_id"], condition=result["condition"], status=result["status"], refresh=False)
             progress.update()
