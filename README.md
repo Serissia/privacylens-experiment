@@ -146,14 +146,14 @@ $commentSummary = "artifacts/comments/<COMMENT_RUN_ID>/summary.json"
 | --- | --- |
 | `--case-id` | input/filter/comment/pipeline：选择一个或多个案例 |
 | `--all` | input/filter/comment/pipeline：选择全部案例 |
-| `--limit` | input/filter/comment/pipeline：最多选择 N 个案例，保留其全部条件或对应 A0 |
+| `--limit` | input/filter/comment/pipeline：单独使用时按输入顺序选择前 N 个不同案例；与 `--case-id` 或 `--all` 同用时限制其案例数。保留所选案例的全部条件及重复观测 |
 | `--max-requests` | input/comment/pipeline：请求尝试上限，缺省按实际计划计算 |
 | `--dry-run` | input/comment/pipeline：使用 .env.example 保存离线计划 |
 | `--context` | filter/comment/pipeline：任务上下文 JSON 数组路径，默认 data/pilot/inputs.json；按 case_id 匹配 |
 | `--labels` | comment/pipeline：评价标签 JSON 数组路径，默认 data/pilot/labels.json |
 | `--output-dir` | pipeline/stat：统计数据和图表的输出目录，默认 artifacts/stats/ 下的新时间戳目录 |
 
-案例选择缺省为第一个案例。标准配对输入中，每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，`pipeline` 合计 8N 次。整体预算在生成前核对，过滤与统计为本地操作；条件数量不均或存在重复观测时按实际选定记录计算。请求尝试一次，故障记录后停止；无效生成按状态保留，评价额度按有效输出计算。
+未指定 `--case-id`、`--all` 或 `--limit` 时选择第一个案例。单独使用 `--limit 5` 选择前五个不同案例。标准配对输入中，每个案例各运行一次时，N 个案例的 `input` 需要 2N 次请求，三组共同 `comment` 需要 6N 次，`pipeline` 合计 8N 次。整体预算在生成前核对，过滤与统计为本地操作；条件数量不均或存在重复观测时按实际选定记录计算。请求尝试一次，故障记录后停止；无效生成按状态保留，评价额度按有效输出计算。
 
 生成、过滤和评分分别显示进度条，包含已完成数量、耗时、速率和剩余时间估计，并显示当前案例、条件或评分类型及状态。逐条结果和错误保存在各阶段 JSONL 中；统计结束后打印图表目录。
 

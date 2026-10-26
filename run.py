@@ -10,7 +10,7 @@ def add_selection(parser, *, model_stage=True):
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--case-id", nargs="+", help="select case IDs")
     selection.add_argument("--all", action="store_true", help="select every case in the input")
-    parser.add_argument("--limit", type=int, help="maximum number of selected cases")
+    parser.add_argument("--limit", type=int, help="select first N distinct cases; cap --case-id/--all selection when combined")
     if model_stage:
         parser.add_argument("--max-requests", type=int, help="request attempt limit (default: selected request plan size)")
         parser.add_argument("--dry-run", action="store_true", help="save a plan using .env.example")

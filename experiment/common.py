@@ -50,7 +50,12 @@ def append_jsonl(path, record):
 
 def select_records(records, case_ids, all_cases, limit):
     available = list(dict.fromkeys(record["case_id"] for record in records))
-    chosen = case_ids if case_ids else available if all_cases else available[:1]
+    if case_ids:
+        chosen = list(dict.fromkeys(case_ids))
+    elif all_cases or limit is not None:
+        chosen = available
+    else:
+        chosen = available[:1]
     missing = set(chosen) - set(available)
     if missing:
         raise SystemExit(f"Case IDs not found: {', '.join(sorted(missing))}")
