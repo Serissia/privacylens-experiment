@@ -86,6 +86,10 @@ REF_MODEL=qwen3.5-flash
 
 提示阶段默认读取 `data/pilot/inputs.json`，生成 `artifacts/prompts/pilot_v2.jsonl`；支持 `--input` 与 `--output` 指定路径。A0 为 `a0_v1`，A1 为 `a1_v2`，两者共用同一份案例正文，A1 追加情境隐私要求。模板说明见 [prompts/README.md](prompts/README.md)。
 
+### 已冻结的最终测试集
+
+末尾 100 例（main394–main493）的输入、评价标签、200 条提示及九类映射已保存在 `data/final_test/`。
+
 ## 运行流程
 
 三组实验使用 `input → filter → comment → stat`。其中 A0/A1 来自模型生成，A2 由同一次 A0 输出派生：

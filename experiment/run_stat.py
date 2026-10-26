@@ -121,7 +121,7 @@ def render_report(report):
         lines.extend(["", "## 按隐私类别比较", "",
                       "类别来自显式分类文件或评价标签中的显式类别标注，分类单位为案例。来源与映射快照见 report.json。", "",
                       "| 批次 / 方法 | 类别 | 案例 / 输出 | 案例泄露率 | 任务完成率 |",
-                      "| --- | --- | ---: | ---: | ---: | ---: |"])
+                      "| --- | --- | ---: | ---: | ---: |"])
         for row in report["categories"]:
             category = str(row["category"]).replace("|", "&#124;").replace("\n", " ")
             lines.append(f"| {row['batch']} / {row['condition']} | {category} | {row['unique_case_count']} / {row['source_count']} | "
