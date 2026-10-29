@@ -10,6 +10,41 @@ ENCODER_ID = "microsoft/deberta-v3-base"
 ENCODER_REVISION = "8ccc9b6f36199bec6961081d44eb72fb3f7353f3"
 
 
+def export_onnx():
+    """Export the pinned local span model with dynamic text and label axes."""
+    import torch
+    from gliner import GLiNER
+    from .gliner_recognizer import MODEL_PATH
+
+    class SpanExport(torch.nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, input_ids, attention_mask, words_mask, text_lengths, span_idx, span_mask):
+            return self.model(
+                input_ids=input_ids, attention_mask=attention_mask, words_mask=words_mask,
+                text_lengths=text_lengths, span_idx=span_idx, span_mask=span_mask,
+            ).logits
+
+    model = GLiNER.from_pretrained(str(MODEL_PATH), local_files_only=True, load_tokenizer=True)
+    inputs, _ = model.prepare_model_inputs(["Alice works at Acme in London."], ["person", "organization", "location"])
+    names = ["input_ids", "attention_mask", "words_mask", "text_lengths", "span_idx", "span_mask"]
+    axes = {name: {0: "batch", 1: "sequence"} for name in names[:3]}
+    axes.update({"text_lengths": {0: "batch"}, "span_idx": {0: "batch", 1: "spans"},
+                 "span_mask": {0: "batch", 1: "spans"}, "logits": {0: "batch", 1: "words", 3: "labels"}})
+    with torch.no_grad():
+        torch.onnx.export(
+            SpanExport(model.model).eval(), tuple(inputs[name] for name in names),
+            str(MODEL_PATH / "model.onnx"), input_names=names, output_names=["logits"],
+            dynamic_axes=axes, opset_version=17, dynamo=False,
+        )
+    source = read_json(MODEL_PATH / "source.json")
+    source.update({"onnx_model_file": "model.onnx", "onnx_opset": 17,
+                   "onnx_source": "local export of pinned model.safetensors"})
+    write_json(MODEL_PATH / "source.json", source)
+
+
 def run():
     os.chdir(ROOT)
     os.environ["HF_HUB_DISABLE_XET"] = "1"
@@ -47,4 +82,5 @@ def run():
         "configuration": "model_name points to the local encoder directory",
         "model_license": "Apache-2.0",
     })
-    print(f"GLiNER model and tokenizer saved to {MODEL_PATH}")
+    export_onnx()
+    print(f"GLiNER model, ONNX weights and tokenizer saved to {MODEL_PATH}")

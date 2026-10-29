@@ -2,7 +2,7 @@
 
 ## 模型与运行
 
-`run.py setup-filter` 下载 `urchade/gliner_medium-v2.1` 的固定修订版及配套 DeBERTa 配置、tokenizer，并生成可直接加载的 fast tokenizer。转换使用英文相对路径读取 SentencePiece 词表，模型配置使用 ASCII 转义，以支持 Windows 中文项目目录。权重、tokenizer、模型卡和来源记录位于 `models/gliner_medium-v2.1/`，编码器资料位于其中的 `encoder/`。`source.json` 记录两者的仓库与修订版本。
+`run.py setup-filter` 下载 `urchade/gliner_medium-v2.1` 的固定修订版及配套 DeBERTa 配置、tokenizer，并生成可直接加载的 fast tokenizer，再将固定权重导出为 model.onnx（opset 17）。权重、tokenizer、模型卡和来源记录位于 `models/gliner_medium-v2.1/`，编码器资料位于其中的 `encoder/`。`source.json` 记录两者的仓库与修订版本。
 
 在项目根目录安装 README 中的依赖、spaCy 模型及 GLiNER 后执行：
 
@@ -10,7 +10,7 @@
 .\.venv\Scripts\python.exe -X utf8 .\run.py filter --input "artifacts/runs/<RUN_ID>/results.jsonl" --all
 ```
 
-`filter` 从本地读取模型和对应 A0，生成 `presidio_gliner_v6` A2。
+`filter` 从本地读取模型和对应 A0，生成 `presidio_gliner_v7` A2。
 
 GLiNER 模型参数保存在 `gliner_config.json`，DeBERTa 编码器配置保存在 `encoder/config.json`。
 
@@ -33,7 +33,9 @@ Presidio 注册 `GLiNERRecognizer` 的项目子类，结合邮箱、电话、信
 
 ## 长文本与坐标
 
-GLiNER 的词单元上限与编码器的 subword 上限属于两层限制。项目复用模型实际 words splitter，以完整词边界切分，再用同一 tokenizer 测量包含标签前缀和特殊 token 的完整编码输入。完整输入预算取 384、模型 `max_len` 和 tokenizer 上限的最小值，分块保留 32 个词单元的重叠。单个词及标签前缀超出预算时明确报错。
+主识别器使用 Presidio `CharacterBasedTextChunker(chunk_size=1200, chunk_overlap=100)`，分块结束处延伸至词边界。字符长度不保证编码输入低于模型 token 上限，密集或特殊文本仍可能触发模型截断。
+
+带任务前缀的二次情境识别使用 token 预算分块。GLiNER 的词单元上限与编码器的 subword 上限属于两层限制。项目复用模型实际 words splitter，以完整词边界切分，再用同一 tokenizer 测量包含标签前缀和特殊 token 的完整编码输入。完整输入预算取 384、模型 `max_len` 和 tokenizer 上限的最小值，分块保留 32 个词单元的重叠。单个词及标签前缀超出预算时明确报错。
 
 Presidio 合并重叠区候选，将坐标加上分块起点，按同类型重叠和最高分去重。每个外发字段的 `gliner_chunks` 保存分块原文范围、词数和完整输入 token 数；所有坐标均为原字段 Python 字符索引 `[start, end)`。
 

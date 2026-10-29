@@ -26,7 +26,7 @@ from .pii_rules import FORMATTED_ENTITIES, RULE_CONFIGURATION, RULES_VERSION, Re
 from .reproducibility import SEED_CONFIGURATION, seed_local
 
 
-FILTER_VERSION = "presidio_gliner_v6"
+FILTER_VERSION = "presidio_gliner_v7"
 NER_ENTITIES = list(dict.fromkeys(ENTITY_MAPPING.values()))
 ENTITIES = ["EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "IBAN_CODE", "US_SSN", *NER_ENTITIES]
 SCORE_THRESHOLD = 0.4
@@ -71,7 +71,7 @@ class PiiFilter:
         seed_local()
         self.versions = {
             package: version(package)
-            for package in ("presidio-analyzer", "presidio-anonymizer", "spacy", NLP_MODEL, "tldextract", "Faker", "gliner", "torch", "transformers", "tokenizers", "huggingface-hub")
+            for package in ("presidio-analyzer", "presidio-anonymizer", "spacy", NLP_MODEL, "tldextract", "Faker", "gliner", "onnxruntime", "torch", "transformers", "tokenizers", "huggingface-hub")
         }
         # The predefined email validator uses the bundled public suffix snapshot.
         tldextract.extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)

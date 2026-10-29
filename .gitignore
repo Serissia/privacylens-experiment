@@ -4,6 +4,7 @@
 !.env.example
 data/pilot/
 artifacts/
+output/
 
 __pycache__/
 *.py[cod]

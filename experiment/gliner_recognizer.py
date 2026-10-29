@@ -1,8 +1,9 @@
-"""English GLiNER recognition with overlapping, token-budgeted text chunks."""
+"""English ONNX GLiNER recognition with audited overlapping text chunks."""
 
 import re
 
 from presidio_analyzer.chunkers.base_chunker import BaseTextChunker, TextChunk
+from presidio_analyzer.chunkers import CharacterBasedTextChunker
 from presidio_analyzer.predefined_recognizers import GLiNERRecognizer
 
 from .common import ROOT, read_json
@@ -85,6 +86,24 @@ class TokenBudgetChunker(BaseTextChunker):
         return chunks
 
 
+class AuditedCharacterChunker(CharacterBasedTextChunker):
+    def __init__(self, model, labels):
+        super().__init__(chunk_size=1200, chunk_overlap=100)
+        self.counter = TokenBudgetChunker(model, labels)
+        self.last_chunks = []
+
+    def chunk(self, text):
+        chunks = super().chunk(text)
+        self.last_chunks = []
+        for index, chunk in enumerate(chunks, 1):
+            words = [word[0] for word in self.counter.processor.words_splitter(chunk.text)]
+            self.last_chunks.append({
+                "chunk_id": index, "start": chunk.start, "end": chunk.end,
+                "word_count": len(words), "input_token_count": self.counter.input_length(words),
+            })
+        return chunks
+
+
 class EnglishGLiNERRecognizer(GLiNERRecognizer):
     def __init__(self):
         seed_local()
@@ -93,8 +112,9 @@ class EnglishGLiNERRecognizer(GLiNERRecognizer):
             entity_mapping=ENTITY_MAPPING, supported_language="en",
             map_location="cpu", threshold=GLINER_THRESHOLD,
             flat_ner=True, multi_label=False, local_files_only=True,
+            load_onnx_model=True, load_tokenizer=True,
         )
-        self.text_chunker = TokenBudgetChunker(self.gliner, self.gliner_labels)
+        self.text_chunker = AuditedCharacterChunker(self.gliner, self.gliner_labels)
 
     def analyze(self, text, entities, nlp_artifacts=None):
         # 结构化实体交由各自识别器处理，模型标签与分块预算保持一致。
@@ -116,13 +136,14 @@ class EnglishGLiNERRecognizer(GLiNERRecognizer):
         return {
             "model_id": MODEL_ID, "model_path": MODEL_PATH.relative_to(ROOT).as_posix(),
             "source": read_json(MODEL_PATH / "source.json"),
-            "device": "cpu", "threshold": GLINER_THRESHOLD,
+            "device": "cpu", "backend": "onnxruntime", "onnx_model_file": "model.onnx",
+            "threshold": GLINER_THRESHOLD,
             "entity_mapping": ENTITY_MAPPING, "flat_ner": True, "multi_label": False,
             "identifier_span_policy": "preserve leading identifier cues; audit the original model span",
             "chunking": {
-                "strategy": "GLiNER word boundaries with full encoder-input token budget",
-                "token_budget": self.text_chunker.token_budget,
-                "overlap_words": OVERLAP_WORDS,
+                "strategy": "Presidio CharacterBasedTextChunker",
+                "chunk_size": self.text_chunker.chunk_size,
+                "chunk_overlap": self.text_chunker.chunk_overlap,
                 "label_prefix_included": True,
                 "offsets": "original field Python character indices [start, end)",
                 "deduplication": "Presidio BaseTextChunker same-type overlap, highest score first",

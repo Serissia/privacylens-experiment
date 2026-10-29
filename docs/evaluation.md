@@ -72,7 +72,7 @@ gold 事实只进入隐私评价请求。条件标签、源提示版本与源模
 
 ## A0/A2 配对
 
-A2 是对具体 A0 最终动作的本地派生结果。配对键为 `case_id` 加 `source_a0.run_id`、`source_a0.path`、`source_a0.line`；同案例多次 A0 运行各有对应 A2。过滤运行另有自己的 `run_id`，A2 的 `requested_model` 和 `prompt_version` 沿用源 A0 的生成来源，过滤方法独立记录为 `filter_version`，当前版本为 `presidio_gliner_v6`。
+A2 是对具体 A0 最终动作的本地派生结果。配对键为 `case_id` 加 `source_a0.run_id`、`source_a0.path`、`source_a0.line`；同案例多次 A0 运行各有对应 A2。过滤运行另有自己的 `run_id`，A2 的 `requested_model` 和 `prompt_version` 沿用源 A0 的生成来源，过滤方法独立记录为 `filter_version`，当前版本为 `presidio_gliner_v7`。
 
 过滤器结合结构化 PII 规则、GLiNER 英文 NER 与通用英文姓名格式规则；spaCy 提供词性与词形。GLiNER 使用模型实际输出分数，模型阈值和全局阈值均为 0.4，姓名格式规则使用 0.7；完整标签映射、模型来源、分块预算、管道状态与包版本保存在过滤配置中。NER 可误识别机构、日期或称呼，人工复核同时记录漏检与过度过滤，并通过独立 helpfulness 评价衡量任务信息损失。命中坐标使用原字段的 Python 字符索引 `[start, end)`。
 
